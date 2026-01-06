@@ -1,0 +1,43 @@
+[project]
+name = "anki-gen"
+version = "0.1.0"
+description = "Parse EPUB files into AI-readable format for flashcard generation"
+requires-python = ">=3.10"
+dependencies = [
+    "typer>=0.9.0",
+    "ebooklib>=0.18",
+    "beautifulsoup4>=4.12",
+    "lxml>=5.0",
+    "pydantic>=2.5",
+    "rich>=13.0",
+    "markdownify>=0.11",
+]
+
+[project.scripts]
+anki-gen = "anki_gen.cli:app"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "mypy>=1.0",
+    "ruff>=0.1",
+]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
