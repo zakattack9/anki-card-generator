@@ -259,6 +259,54 @@ def generate(
         raise typer.Exit(1)
 
 
+@app.command()
+def export(
+    chapters_dir: Annotated[
+        Path,
+        typer.Argument(
+            help="Path to directory containing generated card files",
+            exists=True,
+            file_okay=False,
+            dir_okay=True,
+            resolve_path=True,
+        ),
+    ],
+    output: Annotated[
+        Optional[Path],
+        typer.Option(
+            "--output",
+            "-o",
+            help="Output file path (default: {chapters_dir}/all_cards.txt)",
+        ),
+    ] = None,
+    quiet: Annotated[
+        bool,
+        typer.Option(
+            "--quiet",
+            "-q",
+            help="Suppress progress output",
+        ),
+    ] = False,
+) -> None:
+    """Export all chapter cards into a single Anki-importable file.
+
+    Combines multiple chapter_XXX_cards.txt files into one file while preserving
+    per-chapter deck hierarchy. Displays statistics summary after export.
+    """
+    try:
+        from anki_gen.commands.export import execute_export
+
+        execute_export(
+            chapters_dir=chapters_dir,
+            output_file=output,
+            console=console,
+            quiet=quiet,
+        )
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/]")
+        raise typer.Exit(1)
+
+
 @cache_app.command("clear")
 def cache_clear(
     project_dir: Annotated[

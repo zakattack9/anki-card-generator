@@ -248,6 +248,49 @@ Cloze|The House has {{c1::435}} members.|Set by 1929 Reapportionment Act|house c
 3. Anki will auto-detect settings from file headers
 4. Cards are automatically placed in the correct deck with tags
 
+### Export Combined Cards
+
+Combine all chapter card files into a single Anki-importable file:
+
+```bash
+# Export all chapters to single file
+anki-gen export ./book_chapters/
+
+# Specify custom output path
+anki-gen export ./book_chapters/ --output flashcards.txt
+
+# Quiet mode (suppress stats)
+anki-gen export ./book_chapters/ --quiet
+```
+
+**Output:**
+- Creates `all_cards.txt` (or custom filename) with all cards combined
+- Preserves per-chapter deck hierarchy (`Book::Chapter 01`, `Book::Chapter 02`, etc.)
+- Single import into Anki instead of multiple files
+- Displays statistics summary showing cards per chapter
+
+**Example Stats Output:**
+```
+╭──────────────────── Export Complete ────────────────────╮
+│ Exported 450 cards from 10 chapter(s)                   │
+│                                                         │
+│ Basic cards: 280                                        │
+│ Cloze cards: 170                                        │
+│ Output file: ./book_chapters/all_cards.txt              │
+╰─────────────────────────────────────────────────────────╯
+
+           Per-Chapter Breakdown
+┏━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━┳━━━━━━━┳━━━━━━━┓
+┃ #  ┃ Chapter                  ┃ Basic ┃ Cloze ┃ Total ┃
+┡━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━╇━━━━━━━╇━━━━━━━┩
+│ 1  │ Chapter 01 - The Birth.. │    28 │    17 │    45 │
+│ 2  │ Chapter 02 - The Const.. │    32 │    18 │    50 │
+│ ...│ ...                      │   ... │   ... │   ... │
+├────┼──────────────────────────┼───────┼───────┼───────┤
+│    │ Total                    │   280 │   170 │   450 │
+└────┴──────────────────────────┴───────┴───────┴───────┘
+```
+
 ## Workflow Example
 
 A typical workflow for creating Anki flashcards:
@@ -262,15 +305,18 @@ anki-gen parse "American Government.epub" --chapters 1-3
 # 3. Generate flashcards from the extracted chapters
 anki-gen generate American_Government_chapters/
 
-# 4. Import the generated _cards.txt files into Anki
-#    - chapter_001_cards.txt (contains both Basic and Cloze)
-#    - chapter_002_cards.txt
-#    - etc.
-#    Anki auto-detects deck, tags, and note types from headers
+# 4. Export all cards to a single file
+anki-gen export American_Government_chapters/
 
-# 5. Later, come back and process more chapters
+# 5. Import all_cards.txt into Anki
+#    - Single file contains all chapters
+#    - Each card goes to its chapter deck automatically
+#    - Anki auto-detects deck, tags, and note types from headers
+
+# 6. Later, come back and process more chapters
 anki-gen parse "American Government.epub" --chapters 4-6
 anki-gen generate American_Government_chapters/ --chapters 4-6
+anki-gen export American_Government_chapters/  # Re-export with new chapters
 ```
 
 ## Caching
@@ -287,6 +333,7 @@ The tool automatically caches parsed EPUB structures in `.anki_gen_cache/` to sp
 Completed:
 - [x] `anki-gen parse` - Extract chapters from EPUB files
 - [x] `anki-gen generate` - AI-powered flashcard generation using Gemini CLI
+- [x] `anki-gen export` - Combine multiple chapter flashcards into single file
 - [x] Unified prompt (single API call generates both Basic and Cloze cards)
 - [x] AI-optimized card type selection (no duplicate facts)
 - [x] Anki file headers (auto deck, tags, GUID support)
@@ -294,7 +341,6 @@ Completed:
 - [x] Streaming output display
 
 Future features planned:
-- [ ] `anki-gen export` - Combine multiple chapter flashcards into single file
 - [ ] Support for multiple AI providers (OpenAI, Anthropic, Claude)
 - [ ] Customizable flashcard templates
 - [ ] Batch processing of multiple EPUBs
