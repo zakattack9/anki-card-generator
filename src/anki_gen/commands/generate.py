@@ -4,7 +4,6 @@ from pathlib import Path
 
 from rich.console import Console
 from rich.panel import Panel
-from rich.progress import Progress, SpinnerColumn, TextColumn
 
 from anki_gen.core.flashcard_generator import FlashcardGenerator, GeminiError
 from anki_gen.models.flashcard import GenerationResult
@@ -131,38 +130,46 @@ def execute_generate(
             console.print(f"    Words: {chapter.metadata.word_count:,}")
         return
 
-    generator = FlashcardGenerator(model=model, max_cards=max_cards)
+    generator = FlashcardGenerator(
+        model=model,
+        max_cards=max_cards,
+        console=console,
+        stream=not quiet,
+    )
 
     results: list[tuple[str, int, int]] = []  # (title, basic_count, cloze_count)
     errors: list[tuple[str, str]] = []  # (title, error_message)
 
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        console=console,
-        disable=quiet,
-    ) as progress:
-        task = progress.add_task("Generating flashcards...", total=len(chapter_files))
+    # When streaming, we show a Live panel per generation, so don't use Progress spinner
+    # Progress spinner is only used in quiet mode (no streaming display)
+    for i, chapter_path in enumerate(chapter_files):
+        chapter = load_chapter(chapter_path)
+        title = chapter.metadata.title
+        short_title = title[:50] + "..." if len(title) > 50 else title
 
-        for chapter_path in chapter_files:
-            chapter = load_chapter(chapter_path)
-            title = chapter.metadata.title
-            short_title = title[:40] + "..." if len(title) > 40 else title
+        if not quiet:
+            console.print(f"\n[bold cyan]Chapter {i + 1}/{len(chapter_files)}:[/] {short_title}")
 
-            progress.update(task, description=f"Processing: {short_title}")
+        try:
+            result = generator.generate(chapter, chapter_path.name)
+            save_generation_result(result, chapter_path)
+            results.append((title, result.metadata.basic_count, result.metadata.cloze_count))
 
-            try:
-                result = generator.generate(chapter, chapter_path.name)
-                save_generation_result(result, chapter_path)
-                results.append((title, result.metadata.basic_count, result.metadata.cloze_count))
+            if not quiet:
+                console.print(
+                    f"  [green]✓[/] Generated [green]{result.metadata.basic_count}[/] basic, "
+                    f"[blue]{result.metadata.cloze_count}[/] cloze cards"
+                )
 
-            except GeminiError as e:
-                errors.append((title, str(e)))
+        except GeminiError as e:
+            errors.append((title, str(e)))
+            if not quiet:
+                console.print(f"  [red]✗[/] Error: {e}")
 
-            except Exception as e:
-                errors.append((title, f"Unexpected error: {e}"))
-
-            progress.update(task, advance=1)
+        except Exception as e:
+            errors.append((title, f"Unexpected error: {e}"))
+            if not quiet:
+                console.print(f"  [red]✗[/] Unexpected error: {e}")
 
     # Summary
     if not quiet:

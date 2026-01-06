@@ -1,18 +1,21 @@
 """Flashcard generation using Gemini CLI."""
 
-import json
 import subprocess
 import time
+from collections import deque
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from anki_gen.models.flashcard import (
     BasicCard,
     ClozeCard,
-    GeminiResponse,
     GenerationMetadata,
     GenerationResult,
 )
 from anki_gen.models.output import ChapterOutput
+
+if TYPE_CHECKING:
+    from rich.console import Console
 
 
 class GeminiError(Exception):
@@ -84,16 +87,21 @@ You will be given a chapter from a book.
 class FlashcardGenerator:
     """Generate flashcards from chapter content using Gemini."""
 
-    DEFAULT_MODEL = "gemini-3-pro"
+    DEFAULT_MODEL = "gemini-3-pro-preview"
     TIMEOUT_SECONDS = 300  # 5 minutes
+    STREAM_LINES = 10  # Number of lines to show in streaming output
 
     def __init__(
         self,
         model: str = DEFAULT_MODEL,
         max_cards: int | None = None,
+        console: "Console | None" = None,
+        stream: bool = True,
     ):
         self.model = model
         self.max_cards = max_cards
+        self.console = console
+        self.stream = stream and console is not None
 
     def _get_max_cards_instruction(self) -> str:
         """Get instruction for max cards."""
@@ -117,16 +125,137 @@ class FlashcardGenerator:
             chapter_content=chapter.content,
         )
 
-    def _call_gemini(self, prompt: str) -> GeminiResponse:
-        """Call Gemini CLI and return parsed response."""
-        cmd = [
-            "gemini",
-            "-m",
-            self.model,
-            prompt,
-            "--output-format",
-            "json",
-        ]
+    def _call_gemini_streaming(self, prompt: str, card_type: str) -> str:
+        """Call Gemini CLI with streaming output display.
+
+        Uses a pseudo-terminal (pty) to get unbuffered output from Gemini CLI.
+        Returns the full response text.
+        """
+        import os
+        import pty
+        import select
+
+        from rich.live import Live
+        from rich.panel import Panel
+        from rich.text import Text
+
+        cmd = ["gemini", "-m", self.model, prompt]
+
+        lines_buffer: deque[str] = deque(maxlen=self.STREAM_LINES)
+        all_output: list[str] = []
+        current_line = ""
+
+        def render_panel() -> Panel:
+            content = Text()
+            for i, line in enumerate(lines_buffer):
+                if i > 0:
+                    content.append("\n")
+                # Truncate long lines for display
+                display_line = line[:100] + "..." if len(line) > 100 else line
+                content.append(display_line, style="dim")
+            return Panel(
+                content,
+                title=f"[cyan]Generating {card_type} cards[/]",
+                subtitle=f"[dim]{len(all_output)} lines[/]",
+                border_style="blue",
+            )
+
+        # Create a pseudo-terminal to get unbuffered output
+        master_fd, slave_fd = pty.openpty()
+
+        try:
+            process = subprocess.Popen(
+                cmd,
+                stdout=slave_fd,
+                stderr=slave_fd,
+                stdin=slave_fd,
+                close_fds=True,
+            )
+            os.close(slave_fd)  # Close slave in parent process
+
+            with Live(
+                render_panel(), console=self.console, refresh_per_second=4
+            ) as live:
+                start_time = time.time()
+
+                while True:
+                    # Check timeout
+                    if time.time() - start_time > self.TIMEOUT_SECONDS:
+                        process.kill()
+                        raise GeminiError(
+                            "TIMEOUT", f"Request timed out after {self.TIMEOUT_SECONDS}s"
+                        )
+
+                    # Check if there's data to read
+                    ready, _, _ = select.select([master_fd], [], [], 0.1)
+
+                    if ready:
+                        try:
+                            data = os.read(master_fd, 1024).decode("utf-8", errors="replace")
+                            if not data:
+                                break
+
+                            # Process the data character by character for line detection
+                            for char in data:
+                                if char == "\n":
+                                    if current_line.strip():
+                                        lines_buffer.append(current_line)
+                                        all_output.append(current_line)
+                                        live.update(render_panel())
+                                    current_line = ""
+                                elif char != "\r":
+                                    current_line += char
+
+                        except OSError:
+                            break
+
+                    # Check if process has finished
+                    if process.poll() is not None:
+                        # Read any remaining data
+                        try:
+                            while True:
+                                ready, _, _ = select.select([master_fd], [], [], 0.1)
+                                if not ready:
+                                    break
+                                data = os.read(master_fd, 1024).decode("utf-8", errors="replace")
+                                if not data:
+                                    break
+                                for char in data:
+                                    if char == "\n":
+                                        if current_line.strip():
+                                            lines_buffer.append(current_line)
+                                            all_output.append(current_line)
+                                        current_line = ""
+                                    elif char != "\r":
+                                        current_line += char
+                        except OSError:
+                            pass
+                        break
+
+                # Don't forget any trailing content
+                if current_line.strip():
+                    lines_buffer.append(current_line)
+                    all_output.append(current_line)
+                    live.update(render_panel())
+
+            # Wait for process to fully terminate and get return code
+            process.wait()
+
+        finally:
+            os.close(master_fd)
+
+        # Only raise error for actual non-zero exit codes
+        if process.returncode and process.returncode != 0:
+            raise GeminiError("CLI_ERROR", f"Gemini exited with code {process.returncode}")
+
+        return "\n".join(all_output)
+
+    def _call_gemini_batch(self, prompt: str) -> str:
+        """Call Gemini CLI without streaming (quiet mode).
+
+        Returns the full response text.
+        """
+        cmd = ["gemini", "-m", self.model, prompt]
 
         try:
             result = subprocess.run(
@@ -144,20 +273,13 @@ class FlashcardGenerator:
             error_msg = result.stderr or result.stdout or "Unknown error"
             raise GeminiError("CLI_ERROR", error_msg)
 
-        try:
-            data = json.loads(result.stdout)
-            response = GeminiResponse.model_validate(data)
-        except json.JSONDecodeError as e:
-            raise GeminiError("PARSE_ERROR", f"Failed to parse JSON response: {e}")
+        return result.stdout
 
-        if response.error:
-            raise GeminiError(
-                response.error.get("type", "UNKNOWN"),
-                response.error.get("message", "Unknown error"),
-                response.error.get("code"),
-            )
-
-        return response
+    def _call_gemini(self, prompt: str, card_type: str = "basic") -> str:
+        """Call Gemini CLI and return response text."""
+        if self.stream:
+            return self._call_gemini_streaming(prompt, card_type)
+        return self._call_gemini_batch(prompt)
 
     def _parse_basic_cards(self, response_text: str) -> list[BasicCard]:
         """Parse pipe-separated basic card output."""
@@ -203,14 +325,14 @@ class FlashcardGenerator:
     def generate_basic(self, chapter: ChapterOutput) -> list[BasicCard]:
         """Generate basic flashcards for a chapter."""
         prompt = self._build_basic_prompt(chapter)
-        response = self._call_gemini(prompt)
-        return self._parse_basic_cards(response.response)
+        response_text = self._call_gemini(prompt, card_type="basic")
+        return self._parse_basic_cards(response_text)
 
     def generate_cloze(self, chapter: ChapterOutput) -> list[ClozeCard]:
         """Generate cloze flashcards for a chapter."""
         prompt = self._build_cloze_prompt(chapter)
-        response = self._call_gemini(prompt)
-        return self._parse_cloze_cards(response.response)
+        response_text = self._call_gemini(prompt, card_type="cloze")
+        return self._parse_cloze_cards(response_text)
 
     def generate(self, chapter: ChapterOutput, source_file: str) -> GenerationResult:
         """Generate both basic and cloze flashcards for a chapter."""

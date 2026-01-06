@@ -88,7 +88,9 @@ def parse(
 ) -> None:
     """Parse an EPUB file and extract chapters."""
     if output_format not in ("markdown", "text", "html"):
-        console.print(f"[red]Invalid format: {output_format}. Use markdown, text, or html.[/]")
+        console.print(
+            f"[red]Invalid format: {output_format}. Use markdown, text, or html.[/]"
+        )
         raise typer.Exit(1)
 
     try:
@@ -141,7 +143,9 @@ def info(
 
         # TOC table
         console.print()
-        table = Table(title="Table of Contents", show_header=True, header_style="bold cyan")
+        table = Table(
+            title="Table of Contents", show_header=True, header_style="bold cyan"
+        )
         table.add_column("#", style="dim", width=4)
         table.add_column("Title", style="white")
         table.add_column("Words", justify="right", style="green")
@@ -197,7 +201,7 @@ def generate(
             "-m",
             help="Gemini model to use",
         ),
-    ] = "gemini-3-pro",
+    ] = "gemini-3-pro-preview",
     dry_run: Annotated[
         bool,
         typer.Option(
