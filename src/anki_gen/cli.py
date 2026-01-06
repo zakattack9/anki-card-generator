@@ -38,12 +38,12 @@ def parse(
             resolve_path=True,
         ),
     ],
-    chapters: Annotated[
+    sections: Annotated[
         Optional[str],
         typer.Option(
-            "--chapters",
-            "-c",
-            help="Chapters to extract: '1,3,5-7' or 'all' (default: interactive)",
+            "--sections",
+            "-s",
+            help="EPUB sections to extract by index: '1,3,5-7' or 'all' (use 'anki-gen info' to see indices)",
         ),
     ] = None,
     interactive: Annotated[
@@ -51,7 +51,7 @@ def parse(
         typer.Option(
             "--interactive",
             "-i",
-            help="Interactive mode: display TOC and select chapters",
+            help="Interactive mode: display TOC and select sections",
         ),
     ] = False,
     output_dir: Annotated[
@@ -86,7 +86,7 @@ def parse(
         ),
     ] = False,
 ) -> None:
-    """Parse an EPUB file and extract chapters."""
+    """Parse an EPUB file and extract sections."""
     if output_format not in ("markdown", "text", "html"):
         console.print(
             f"[red]Invalid format: {output_format}. Use markdown, text, or html.[/]"
@@ -96,7 +96,7 @@ def parse(
     try:
         execute_parse(
             epub_path=epub_path,
-            chapters=chapters,
+            chapters=sections,  # internally still uses 'chapters' param name
             interactive=interactive,
             output_dir=output_dir,
             output_format=output_format,  # type: ignore
@@ -170,19 +170,19 @@ def generate(
     chapters_dir: Annotated[
         Path,
         typer.Argument(
-            help="Path to directory containing parsed chapter JSON files",
+            help="Path to directory containing parsed section JSON files",
             exists=True,
             file_okay=False,
             dir_okay=True,
             resolve_path=True,
         ),
     ],
-    chapters: Annotated[
+    sections: Annotated[
         Optional[str],
         typer.Option(
-            "--chapters",
-            "-c",
-            help="Chapters to generate: '1,3,5-7' or 'all' (default: all)",
+            "--sections",
+            "-s",
+            help="Sections to generate by index: '1,3,5-7' or 'all' (default: all)",
         ),
     ] = None,
     max_cards: Annotated[
@@ -190,7 +190,7 @@ def generate(
         typer.Option(
             "--max-cards",
             "-n",
-            help="Maximum total cards per chapter (default: AI decides)",
+            help="Maximum total cards per section (default: AI decides)",
             min=1,
         ),
     ] = None,
@@ -234,9 +234,9 @@ def generate(
         ),
     ] = False,
 ) -> None:
-    """Generate AI-powered flashcards from parsed chapters.
+    """Generate AI-powered flashcards from parsed sections.
 
-    Outputs a single combined file per chapter (chapter_XXX_cards.txt) containing
+    Outputs a single combined file per section (chapter_XXX_cards.txt) containing
     both Basic and Cloze cards with Anki import headers for automatic deck placement,
     tags, and GUID support.
     """
@@ -250,7 +250,7 @@ def generate(
             dry_run=dry_run,
             quiet=quiet,
             console=console,
-            chapters=chapters,
+            chapters=sections,  # internally still uses 'chapters' param name
             deck=deck,
             tags=tags,
         )
@@ -288,10 +288,10 @@ def export(
         ),
     ] = False,
 ) -> None:
-    """Export all chapter cards into a single Anki-importable file.
+    """Export all section cards into a single Anki-importable file.
 
     Combines multiple chapter_XXX_cards.txt files into one file while preserving
-    per-chapter deck hierarchy. Displays statistics summary after export.
+    per-section deck hierarchy. Displays statistics summary after export.
     """
     try:
         from anki_gen.commands.export import execute_export

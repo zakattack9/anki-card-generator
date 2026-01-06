@@ -90,12 +90,12 @@ def extract_chapter_number(chapter_path: Path) -> int:
 def build_deck_name(
     book_title: str,
     chapter_title: str,
-    chapter_num: int,
     deck_override: str | None = None,
 ) -> str:
     """Build hierarchical deck name for Anki.
 
-    Format: {Book Title}::Chapter {NN} - {Chapter Title}
+    Format: {Book Title}::{Chapter Title}
+    Uses the actual TOC title without confusing index numbers.
     """
     if deck_override:
         return deck_override
@@ -108,10 +108,10 @@ def build_deck_name(
 
     # Sanitize chapter title
     safe_chapter = AnkiExportConfig.sanitize_deck_name(chapter_title)
-    if len(safe_chapter) > 40:
-        safe_chapter = safe_chapter[:37] + "..."
+    if len(safe_chapter) > 50:
+        safe_chapter = safe_chapter[:47] + "..."
 
-    return f"{safe_book}::Chapter {chapter_num:02d} - {safe_chapter}"
+    return f"{safe_book}::{safe_chapter}"
 
 
 def build_export_config(
@@ -128,7 +128,6 @@ def build_export_config(
     deck_name = build_deck_name(
         book_title=manifest.book_title,
         chapter_title=chapter.metadata.title,
-        chapter_num=chapter_num,
         deck_override=deck_override,
     )
 
@@ -189,13 +188,13 @@ def execute_generate(
     chapter_files = filter_chapter_files(all_chapter_files, chapters)
 
     if not chapter_files:
-        console.print(f"[red]No chapter files found in {chapters_dir}[/]")
+        console.print(f"[red]No section files found in {chapters_dir}[/]")
         console.print("[dim]Make sure you've run 'anki-gen parse' first.[/]")
         return
 
     if not quiet:
         console.print(f"[dim]Book:[/] {manifest.book_title[:60]}...")
-        console.print(f"[dim]Found {len(chapter_files)} chapter(s) to process[/]")
+        console.print(f"[dim]Found {len(chapter_files)} section(s) to process[/]")
         console.print(f"[dim]Model: {model}[/]")
         if deck:
             console.print(f"[dim]Deck override: {deck}[/]")
@@ -233,9 +232,10 @@ def execute_generate(
         chapter = load_chapter(chapter_path)
         title = chapter.metadata.title
         short_title = title[:50] + "..." if len(title) > 50 else title
+        section_index = extract_chapter_number(chapter_path)
 
         if not quiet:
-            console.print(f"\n[bold cyan]Chapter {i + 1}/{len(chapter_files)}:[/] {short_title}")
+            console.print(f"\n[bold cyan][{section_index}/{len(all_chapter_files)}][/] {short_title}")
 
         try:
             # Generate cards
@@ -274,7 +274,7 @@ def execute_generate(
 
             console.print(
                 Panel(
-                    f"[green]Generated flashcards for {len(results)} chapter(s)[/]\n\n"
+                    f"[green]Generated flashcards for {len(results)} section(s)[/]\n\n"
                     f"[dim]Total basic cards:[/] {total_basic}\n"
                     f"[dim]Total cloze cards:[/] {total_cloze}\n"
                     f"[dim]Total cards:[/] {total_basic + total_cloze}\n"
@@ -285,7 +285,7 @@ def execute_generate(
             )
 
             console.print()
-            console.print("[dim]Per-chapter breakdown:[/]")
+            console.print("[dim]Per-section breakdown:[/]")
             for title, basic_count, cloze_count in results:
                 short_title = title[:50] + "..." if len(title) > 50 else title
                 console.print(f"  {short_title}")
@@ -293,7 +293,7 @@ def execute_generate(
 
         if errors:
             console.print()
-            console.print(f"[red]Failed to process {len(errors)} chapter(s):[/]")
+            console.print(f"[red]Failed to process {len(errors)} section(s):[/]")
             for title, error in errors:
                 short_title = title[:50] + "..." if len(title) > 50 else title
                 console.print(f"  [red]{short_title}[/]")

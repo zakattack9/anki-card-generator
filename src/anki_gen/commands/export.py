@@ -163,7 +163,7 @@ def display_stats(stats: ExportStats, output_path: Path, console: Console) -> No
     console.print()
     console.print(
         Panel(
-            f"[green]Exported {stats.total_cards} cards from {stats.total_chapters} chapter(s)[/]\n\n"
+            f"[green]Exported {stats.total_cards} cards from {stats.total_chapters} section(s)[/]\n\n"
             f"[dim]Basic cards:[/] {stats.total_basic}\n"
             f"[dim]Cloze cards:[/] {stats.total_cloze}\n"
             f"[dim]Output file:[/] {output_path}",
@@ -172,11 +172,11 @@ def display_stats(stats: ExportStats, output_path: Path, console: Console) -> No
         )
     )
 
-    # Per-chapter breakdown table
+    # Per-section breakdown table
     console.print()
-    table = Table(title="Per-Chapter Breakdown", show_header=True, header_style="bold cyan")
+    table = Table(title="Per-Section Breakdown", show_header=True, header_style="bold cyan")
     table.add_column("#", style="dim", width=4)
-    table.add_column("Chapter", style="white")
+    table.add_column("Section", style="white")
     table.add_column("Basic", justify="right", style="green")
     table.add_column("Cloze", justify="right", style="blue")
     table.add_column("Total", justify="right", style="yellow")
@@ -244,7 +244,7 @@ def execute_export(
 
     if not quiet:
         console.print(f"[dim]Book:[/] {manifest.book_title}")
-        console.print(f"[dim]Found {len(chapters)} chapter(s) with cards[/]")
+        console.print(f"[dim]Found {len(chapters)} section(s) with cards[/]")
 
     # Build book slug for tags
     book_slug = re.sub(r"[^a-z0-9-]", "", manifest.book_title.lower().replace(" ", "-"))
