@@ -215,11 +215,15 @@ def execute_generate(
             console.print(f"    Deck: {config.deck_name}")
         return
 
+    # Create book slug for unique GUIDs across books
+    book_slug = AnkiExportConfig.slugify(manifest.book_title)
+
     generator = FlashcardGenerator(
         model=model,
         max_cards=max_cards,
         console=console,
         stream=not quiet,
+        book_slug=book_slug,
     )
 
     results: list[tuple[str, int, int]] = []  # (title, basic_count, cloze_count)

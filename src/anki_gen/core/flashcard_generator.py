@@ -153,11 +153,13 @@ class FlashcardGenerator:
         max_cards: int | None = None,
         console: "Console | None" = None,
         stream: bool = True,
+        book_slug: str = "",
     ):
         self.model = model
         self.max_cards = max_cards
         self.console = console
         self.stream = stream and console is not None
+        self.book_slug = book_slug
 
     def _get_max_cards_instruction(self) -> str:
         """Get instruction for max cards."""
@@ -391,9 +393,12 @@ class FlashcardGenerator:
                         if t.strip()
                     ]
 
-            # Generate GUID
+            # Generate GUID (book_slug-chapter_id-sequence for uniqueness across books)
             card_sequence += 1
-            guid = f"{chapter_id}-{card_sequence:03d}"
+            if self.book_slug:
+                guid = f"{self.book_slug}-{chapter_id}-{card_sequence:03d}"
+            else:
+                guid = f"{chapter_id}-{card_sequence:03d}"
 
             if card_type == "Basic":
                 if not field1 or not field2:
