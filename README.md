@@ -104,6 +104,54 @@ anki-gen parse book.epub --chapters 1-5 --force
 anki-gen parse book.epub --chapters 1-5 --quiet
 ```
 
+### Check Status
+
+View a summary of what has been parsed, generated, and exported for a book:
+
+```bash
+anki-gen status ./book_chapters/
+```
+
+Output:
+```
+╭─────────────────── Book Information ───────────────────╮
+│ The Everything American Government Book                │
+│                                                        │
+│ Author(s): Nick Ragone                                 │
+│ Output directory: ./book_chapters                      │
+│ Created: 2025-01-05 10:30                              │
+│                                                        │
+│ EPUB total sections: 35                                │
+│ Status: Generated                                      │
+╰────────────────────────────────────────────────────────╯
+
+╭─────────────────── Progress Summary ───────────────────╮
+│ Sections parsed: 3 of 35                               │
+│ Sections generated: 3 of 3                             │
+│ Total cards: 135 (85 basic, 50 cloze)                  │
+│ Exported: No                                           │
+╰────────────────────────────────────────────────────────╯
+
+                    Section Details
+┏━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━┳━━━━━━━┳━━━━━━━┓
+┃ #  ┃ Title                      ┃ Words ┃ Parsed ┃ Generated ┃ Basic ┃ Cloze ┃ Total ┃
+┡━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━╇━━━━━━━╇━━━━━━━┩
+│ 10 │ 1- The Birth of a Nation   │ 3,388 │   ✓    │     ✓     │    28 │    17 │    45 │
+│ 11 │ 2- The Constitution        │ 2,755 │   ✓    │     ✓     │    32 │    18 │    50 │
+│ 12 │ 3- The Bill of Rights      │ 2,100 │   ✓    │     ✓     │    25 │    15 │    40 │
+├────┼────────────────────────────┼───────┼────────┼───────────┼───────┼───────┼───────┤
+│    │ Total                      │       │      3 │         3 │    85 │    50 │   135 │
+└────┴────────────────────────────┴───────┴────────┴───────────┴───────┴───────┴───────┘
+
+Next step: Run anki-gen export ./book_chapters/ to create combined import file
+```
+
+The status command shows:
+- Book metadata and output location
+- Overall progress (parsed → generated → exported)
+- Per-section breakdown with card counts
+- Suggested next step based on current state
+
 ### Cache Management
 
 The tool caches parsed EPUB structures to speed up repeated operations.
@@ -307,15 +355,18 @@ anki-gen parse "American Government.epub" --sections 10-12
 # 3. Generate flashcards from the extracted sections
 anki-gen generate American_Government_chapters/
 
-# 4. Export all cards to a single file
+# 4. Check progress at any time
+anki-gen status American_Government_chapters/
+
+# 5. Export all cards to a single file
 anki-gen export American_Government_chapters/
 
-# 5. Import all_cards.txt into Anki
+# 6. Import all_cards.txt into Anki
 #    - Single file contains all sections
 #    - Each card goes to its section deck automatically
 #    - Anki auto-detects deck, tags, and note types from headers
 
-# 6. Later, come back and process more sections
+# 7. Later, come back and process more sections
 anki-gen parse "American Government.epub" --sections 13-15
 anki-gen generate American_Government_chapters/ --sections 13-15
 anki-gen export American_Government_chapters/  # Re-export with new sections
@@ -336,6 +387,7 @@ Completed:
 - [x] `anki-gen parse` - Extract chapters from EPUB files
 - [x] `anki-gen generate` - AI-powered flashcard generation using Gemini CLI
 - [x] `anki-gen export` - Combine multiple chapter flashcards into single file
+- [x] `anki-gen status` - Show progress summary of parsed/generated/exported sections
 - [x] Unified prompt (single API call generates both Basic and Cloze cards)
 - [x] AI-optimized card type selection (no duplicate facts)
 - [x] Anki file headers (auto deck, tags, GUID support)

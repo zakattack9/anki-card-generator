@@ -307,6 +307,37 @@ def export(
         raise typer.Exit(1)
 
 
+@app.command()
+def status(
+    chapters_dir: Annotated[
+        Path,
+        typer.Argument(
+            help="Path to directory containing parsed section files",
+            exists=True,
+            file_okay=False,
+            dir_okay=True,
+            resolve_path=True,
+        ),
+    ],
+) -> None:
+    """Show status summary of parsed, generated, and exported sections.
+
+    Displays a comprehensive overview of what anki-gen has done for a book,
+    including which sections have been parsed, which have flashcards generated,
+    card counts, and export status.
+    """
+    try:
+        from anki_gen.commands.status import execute_status
+
+        execute_status(
+            chapters_dir=chapters_dir,
+            console=console,
+        )
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/]")
+        raise typer.Exit(1)
+
+
 @cache_app.command("clear")
 def cache_clear(
     project_dir: Annotated[
