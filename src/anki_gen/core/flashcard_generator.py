@@ -37,25 +37,48 @@ UNIFIED_CARD_PROMPT = """You are a world-class Anki flashcard creator. Generate 
 For EACH fact, choose the optimal card type:
 
 **CLOZE** - Use for:
-- Numbers, dates, percentages (e.g., "The House has {{{{c1::435}}}} members")
-- Names of people, places, documents (e.g., "{{{{c1::Thomas Jefferson}}}} wrote...")
-- Terminology and clause names (e.g., "The {{{{c1::Supremacy}}}} Clause...")
-- Simple factual associations where fill-in-blank reads naturally
+- Numbers, dates, percentages, quantities
+- Names of people, places, documents, laws
+- Terminology and key terms within definitions
+- Simple factual associations where fill-in-the-blank reads naturally
+- Lists or sequences to be memorized (use multiple deletions: c1, c2, c3...)
 
 **BASIC** - Use for:
 - "Why" or "How" questions requiring explanation
-- Answers with multiple parts or lists
-- Definitions needing full context
-- Comparisons or contrasts
-- Processes or procedures
+- Answers with multiple parts that need full context
+- Concepts requiring nuanced understanding
+- Comparisons, contrasts, cause-effect relationships
+- Processes or procedures with reasoning
 
 ## Rules
 
-1. Each fact appears ONCE - no duplicates between card types
-2. Maximum 2 cloze deletions per card ({{{{c1::...}}}} and {{{{c2::...}}}} only)
-3. One atomic fact per card
-4. Cards must be self-contained (no assumed prior knowledge)
-5. Use your knowledge to add context that makes cards complete
+1. **One fact = one card** - Never duplicate facts between card types
+2. **Cloze deletions** - Use as many as needed for the concept:
+   - Single deletion for isolated facts (dates, names, terms)
+   - Multiple deletions (c1, c2, c3...) for lists, sequences, or related items that form ONE concept
+   - NEVER use multiple deletions for UNRELATED facts - split into separate cards instead
+3. **Atomic concepts** - Each card tests one cohesive idea
+4. **Self-contained** - A student with no prior knowledge should understand the card
+5. **Add context** - Use your knowledge to make cards complete and accurate
+6. **Focus on key concepts** - Prioritize important ideas over trivial details
+7. **Escape pipes** - If content contains |, write it as \\|
+
+## Cloze Back-Extra Guidelines
+
+The back-extra field should provide helpful context, NOT category labels.
+
+GOOD back-extra examples:
+- "Established at the Constitutional Convention of 1787"
+- "This compromise resolved the dispute between large and small states"
+- "Changed by the 17th Amendment in 1913"
+- "These five freedoms are collectively called the First Amendment rights"
+
+BAD back-extra (never use these):
+- "Number"
+- "Date"
+- "Definition"
+- "Clause"
+- "Term"
 
 {max_cards_instruction}
 
@@ -63,15 +86,51 @@ For EACH fact, choose the optimal card type:
 
 Each card on a new line with pipe separator:
 - Basic: `Basic|Question|Answer|tags`
-- Cloze: `Cloze|Cloze text with {{{{c1::deletions}}}}|Back extra info|tags`
+- Cloze: `Cloze|Text with {{{{c1::deletion}}}}|Back-extra context|tags`
 
-Tags: 1-3 lowercase topic words, space-separated (e.g., "constitution amendment-process")
+Tags: 1-3 lowercase hyphenated topic words (e.g., "constitution separation-of-powers")
 
-Formatting:
+## Formatting
+
+- Bold: <b>text</b>, Italic: <i>text</i>
+- Lists: use <br> for line breaks (no actual newlines within fields)
 - Math: \\( inline \\) or \\[ block \\]
 - Chemistry: \\( \\ce{{H2O}} \\)
-- Lists within fields: use <br> (no actual newlines)
-- Bold: <b>text</b>, Italic: <i>text</i>
+
+## Examples
+
+GOOD Basic card:
+Basic|Why did the framers create a system of checks and balances?|To prevent any single branch of government from becoming too powerful, ensuring that each branch can limit the powers of the others|checks-balances separation-of-powers
+
+GOOD Cloze (single deletion):
+Cloze|The Constitution was ratified in {{{{c1::1788}}}}.|Replaced the Articles of Confederation after approval by 9 of 13 states|constitution ratification
+
+GOOD Cloze (multiple deletions for a list - ONE concept):
+Cloze|The First Amendment protects freedom of {{{{c1::speech}}}}, {{{{c2::religion}}}}, {{{{c3::press}}}}, {{{{c4::assembly}}}}, and {{{{c5::petition}}}}.|These five freedoms form the core civil liberties in the Bill of Rights|first-amendment civil-liberties
+
+GOOD Cloze (related pair):
+Cloze|The {{{{c1::House}}}} has members based on population, while the {{{{c2::Senate}}}} has equal representation per state.|This structure resulted from the Great Compromise|congress representation
+
+BAD - multiple deletions for UNRELATED facts (should be separate cards):
+Cloze|The Constitution was signed in {{{{c1::1787}}}} and has {{{{c2::seven}}}} articles and {{{{c3::27}}}} amendments.|Facts|constitution
+
+BAD - should be cloze, not basic:
+Basic|How many members are in the House of Representatives?|435|congress
+
+BAD - not self-contained:
+Cloze|{{{{c1::Article I}}}} is the longest article.|Section|constitution
+
+GOOD - self-contained version:
+Cloze|{{{{c1::Article I}}}} of the U.S. Constitution, which establishes Congress, is the longest of the seven articles.|The framers believed the legislative branch should be preeminent in American government|constitution congress
+
+## Avoid These Mistakes
+
+- Creating both a basic AND cloze card for the same fact
+- Using multiple cloze deletions for unrelated facts in one card
+- Category-only back-extra ("Number", "Date", "Term")
+- Questions that could be answered with a single word/number (use cloze instead)
+- Cards that require reading another card to understand
+- Trivial facts that aren't worth memorizing
 
 Return ONLY the cards, no other text.
 
@@ -85,7 +144,7 @@ class FlashcardGenerator:
     """Generate flashcards from chapter content using Gemini."""
 
     DEFAULT_MODEL = "gemini-3-pro-preview"
-    TIMEOUT_SECONDS = 300  # 5 minutes
+    TIMEOUT_SECONDS = 600  # 10 minutes
     STREAM_LINES = 10  # Number of lines to show in streaming output
 
     def __init__(
@@ -172,7 +231,8 @@ class FlashcardGenerator:
                     if time.time() - start_time > self.TIMEOUT_SECONDS:
                         process.kill()
                         raise GeminiError(
-                            "TIMEOUT", f"Request timed out after {self.TIMEOUT_SECONDS}s"
+                            "TIMEOUT",
+                            f"Request timed out after {self.TIMEOUT_SECONDS}s",
                         )
 
                     # Check if there's data to read
@@ -180,7 +240,9 @@ class FlashcardGenerator:
 
                     if ready:
                         try:
-                            data = os.read(master_fd, 1024).decode("utf-8", errors="replace")
+                            data = os.read(master_fd, 1024).decode(
+                                "utf-8", errors="replace"
+                            )
                             if not data:
                                 break
 
@@ -206,7 +268,9 @@ class FlashcardGenerator:
                                 ready, _, _ = select.select([master_fd], [], [], 0.1)
                                 if not ready:
                                     break
-                                data = os.read(master_fd, 1024).decode("utf-8", errors="replace")
+                                data = os.read(master_fd, 1024).decode(
+                                    "utf-8", errors="replace"
+                                )
                                 if not data:
                                     break
                                 for char in data:
@@ -235,7 +299,9 @@ class FlashcardGenerator:
 
         # Only raise error for actual non-zero exit codes
         if process.returncode and process.returncode != 0:
-            raise GeminiError("CLI_ERROR", f"Gemini exited with code {process.returncode}")
+            raise GeminiError(
+                "CLI_ERROR", f"Gemini exited with code {process.returncode}"
+            )
 
         return "\n".join(all_output)
 
@@ -304,7 +370,9 @@ class FlashcardGenerator:
             # Split into parts
             parts = line.split("|")
             if len(parts) < 3:
-                warnings.append(f"Line {line_num}: Malformed card (fewer than 3 fields)")
+                warnings.append(
+                    f"Line {line_num}: Malformed card (fewer than 3 fields)"
+                )
                 continue
 
             card_type = parts[0].strip()
@@ -331,26 +399,32 @@ class FlashcardGenerator:
                 if not field1 or not field2:
                     warnings.append(f"Line {line_num}: Empty question or answer")
                     continue
-                basic_cards.append(BasicCard(
-                    front=field1,
-                    back=field2,
-                    tags=tags,
-                    guid=guid,
-                ))
+                basic_cards.append(
+                    BasicCard(
+                        front=field1,
+                        back=field2,
+                        tags=tags,
+                        guid=guid,
+                    )
+                )
             elif card_type == "Cloze":
                 if not field1:
                     warnings.append(f"Line {line_num}: Empty cloze text")
                     continue
                 # Validate cloze markers
                 if "{{c" not in field1:
-                    warnings.append(f"Line {line_num}: Cloze card missing {{{{c1::...}}}} markers")
+                    warnings.append(
+                        f"Line {line_num}: Cloze card missing {{{{c1::...}}}} markers"
+                    )
                     continue
-                cloze_cards.append(ClozeCard(
-                    text=field1,
-                    back_extra=field2,
-                    tags=tags,
-                    guid=guid,
-                ))
+                cloze_cards.append(
+                    ClozeCard(
+                        text=field1,
+                        back_extra=field2,
+                        tags=tags,
+                        guid=guid,
+                    )
+                )
             else:
                 warnings.append(f"Line {line_num}: Unknown card type '{card_type}'")
 
