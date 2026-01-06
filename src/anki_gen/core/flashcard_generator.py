@@ -1,5 +1,6 @@
 """Flashcard generation using Gemini CLI."""
 
+import re
 import subprocess
 import time
 from collections import deque
@@ -7,6 +8,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from anki_gen.models.flashcard import (
+    AnkiExportConfig,
     BasicCard,
     ClozeCard,
     GenerationMetadata,
@@ -28,59 +30,54 @@ class GeminiError(Exception):
         super().__init__(f"{error_type}: {message}")
 
 
-BASIC_CARD_PROMPT = """You are a world-class Anki flashcard creator that helps students remember facts, concepts, and ideas.
+UNIFIED_CARD_PROMPT = """You are a world-class Anki flashcard creator. Generate high-quality flashcards from the chapter below.
 
-You will be given a chapter from a book.
+## Card Type Selection
 
-1. Identify key high-level concepts and ideas presented, including relevant equations. If the content is math or physics-heavy, focus on concepts. If it isn't heavy on concepts, focus on facts.
-2. Use your own knowledge to flesh out additional details (facts, dates, equations) to ensure flashcards are self-contained.
-3. Make question-answer cards based on the content.
-4. Keep questions and answers roughly in the same order as they appear in the chapter.
+For EACH fact, choose the optimal card type:
+
+**CLOZE** - Use for:
+- Numbers, dates, percentages (e.g., "The House has {{{{c1::435}}}} members")
+- Names of people, places, documents (e.g., "{{{{c1::Thomas Jefferson}}}} wrote...")
+- Terminology and clause names (e.g., "The {{{{c1::Supremacy}}}} Clause...")
+- Simple factual associations where fill-in-blank reads naturally
+
+**BASIC** - Use for:
+- "Why" or "How" questions requiring explanation
+- Answers with multiple parts or lists
+- Definitions needing full context
+- Comparisons or contrasts
+- Processes or procedures
+
+## Rules
+
+1. Each fact appears ONCE - no duplicates between card types
+2. Maximum 2 cloze deletions per card ({{{{c1::...}}}} and {{{{c2::...}}}} only)
+3. One atomic fact per card
+4. Cards must be self-contained (no assumed prior knowledge)
+5. Use your knowledge to add context that makes cards complete
 
 {max_cards_instruction}
 
-**Output Format:**
-- Each flashcard on a new line
-- Use pipe separator | between question and answer
-- Math: wrap with \\( ... \\) for inline, \\[ ... \\] for block
-- Chemistry: use \\( \\ce{{H2O}} \\) format for MathJax
-- No newlines within a card - use <br> for lists
+## Output Format
+
+Each card on a new line with pipe separator:
+- Basic: `Basic|Question|Answer|tags`
+- Cloze: `Cloze|Cloze text with {{{{c1::deletions}}}}|Back extra info|tags`
+
+Tags: 1-3 lowercase topic words, space-separated (e.g., "constitution amendment-process")
+
+Formatting:
+- Math: \\( inline \\) or \\[ block \\]
+- Chemistry: \\( \\ce{{H2O}} \\)
+- Lists within fields: use <br> (no actual newlines)
 - Bold: <b>text</b>, Italic: <i>text</i>
-- No header row
-- Return ONLY the cards, no other text
 
-**Chapter Title:** {chapter_title}
+Return ONLY the cards, no other text.
 
-**Chapter Content:**
-{chapter_content}"""
+## Chapter Title: {chapter_title}
 
-CLOZE_CARD_PROMPT = """You are a world-class Anki cloze-deletion flashcard creator.
-
-You will be given a chapter from a book.
-
-1. Identify key concepts, facts, dates, definitions, and equations for long-term recall.
-2. Expand briefly on each point with extra context so cards are self-contained.
-3. Convert each point into well-formed cloze deletions:
-   - Use {{{{c1::hidden text}}}} syntax
-   - Use c2, c3 only if a second deletion is really necessary
-   - Keep one atomic fact per cloze
-   - Add hints if helpful: {{{{c1::answer::hint}}}}
-4. Maintain original order of appearance from the source.
-
-{max_cards_instruction}
-
-**Output Format:**
-- Each flashcard on a new line
-- Use pipe separator | between cloze text and back extra info
-- Math: wrap with \\( ... \\) for inline, \\[ ... \\] for block
-- Chemistry: use \\( \\ce{{H2O}} \\) format for MathJax
-- No newlines within a card - use <br> for lists
-- No header row
-- Return ONLY the cards, no other text
-
-**Chapter Title:** {chapter_title}
-
-**Chapter Content:**
+## Chapter Content:
 {chapter_content}"""
 
 
@@ -106,26 +103,18 @@ class FlashcardGenerator:
     def _get_max_cards_instruction(self) -> str:
         """Get instruction for max cards."""
         if self.max_cards:
-            return f"Generate at most {self.max_cards} cards total."
-        return "Be exhaustive. Cover as much as you can - aim for comprehensive coverage of key concepts."
+            return f"Generate at most {self.max_cards} cards total (combining both Basic and Cloze)."
+        return "Be comprehensive. Cover all key concepts, but avoid redundancy."
 
-    def _build_basic_prompt(self, chapter: ChapterOutput) -> str:
-        """Build prompt for basic card generation."""
-        return BASIC_CARD_PROMPT.format(
+    def _build_prompt(self, chapter: ChapterOutput) -> str:
+        """Build the unified prompt for card generation."""
+        return UNIFIED_CARD_PROMPT.format(
             max_cards_instruction=self._get_max_cards_instruction(),
             chapter_title=chapter.metadata.title,
             chapter_content=chapter.content,
         )
 
-    def _build_cloze_prompt(self, chapter: ChapterOutput) -> str:
-        """Build prompt for cloze card generation."""
-        return CLOZE_CARD_PROMPT.format(
-            max_cards_instruction=self._get_max_cards_instruction(),
-            chapter_title=chapter.metadata.title,
-            chapter_content=chapter.content,
-        )
-
-    def _call_gemini_streaming(self, prompt: str, card_type: str) -> str:
+    def _call_gemini_streaming(self, prompt: str) -> str:
         """Call Gemini CLI with streaming output display.
 
         Uses a pseudo-terminal (pty) to get unbuffered output from Gemini CLI.
@@ -155,8 +144,8 @@ class FlashcardGenerator:
                 content.append(display_line, style="dim")
             return Panel(
                 content,
-                title=f"[cyan]Generating {card_type} cards[/]",
-                subtitle=f"[dim]{len(all_output)} lines[/]",
+                title="[cyan]Generating flashcards[/]",
+                subtitle=f"[dim]{len(all_output)} cards[/]",
                 border_style="blue",
             )
 
@@ -275,74 +264,123 @@ class FlashcardGenerator:
 
         return result.stdout
 
-    def _call_gemini(self, prompt: str, card_type: str = "basic") -> str:
+    def _call_gemini(self, prompt: str) -> str:
         """Call Gemini CLI and return response text."""
         if self.stream:
-            return self._call_gemini_streaming(prompt, card_type)
+            return self._call_gemini_streaming(prompt)
         return self._call_gemini_batch(prompt)
 
-    def _parse_basic_cards(self, response_text: str) -> list[BasicCard]:
-        """Parse pipe-separated basic card output."""
-        cards = []
+    def _extract_chapter_id(self, source_file: str) -> str:
+        """Extract chapter ID from source filename.
+
+        Examples:
+            chapter_011.json -> ch011
+            chapter_001.json -> ch001
+        """
+        match = re.search(r"chapter_(\d+)", source_file)
+        if match:
+            return f"ch{match.group(1)}"
+        return "ch000"
+
+    def _parse_unified_output(
+        self, response_text: str, chapter_id: str
+    ) -> tuple[list[BasicCard], list[ClozeCard], list[str]]:
+        """Parse unified output into basic and cloze cards.
+
+        Returns: (basic_cards, cloze_cards, warnings)
+        """
+        basic_cards: list[BasicCard] = []
+        cloze_cards: list[ClozeCard] = []
+        warnings: list[str] = []
+        card_sequence = 0
+
         lines = response_text.strip().split("\n")
 
-        for line in lines:
+        for line_num, line in enumerate(lines, 1):
             line = line.strip()
             if not line or "|" not in line:
                 continue
 
-            # Split on first pipe only (in case answer contains pipes)
-            parts = line.split("|", 1)
-            if len(parts) == 2:
-                front, back = parts
-                cards.append(BasicCard(front=front.strip(), back=back.strip()))
-
-        return cards
-
-    def _parse_cloze_cards(self, response_text: str) -> list[ClozeCard]:
-        """Parse pipe-separated cloze card output."""
-        cards = []
-        lines = response_text.strip().split("\n")
-
-        for line in lines:
-            line = line.strip()
-            if not line:
+            # Split into parts
+            parts = line.split("|")
+            if len(parts) < 3:
+                warnings.append(f"Line {line_num}: Malformed card (fewer than 3 fields)")
                 continue
 
-            # Split on first pipe only
-            if "|" in line:
-                parts = line.split("|", 1)
-                text, back_extra = parts[0].strip(), parts[1].strip()
+            card_type = parts[0].strip()
+            field1 = parts[1].strip()
+            field2 = parts[2].strip()
+
+            # Extract tags (4th field if present)
+            tags: list[str] = []
+            if len(parts) >= 4:
+                raw_tags = parts[3].strip()
+                if raw_tags:
+                    # Split on spaces, filter empty
+                    tags = [
+                        AnkiExportConfig.sanitize_tag(t)
+                        for t in raw_tags.split()
+                        if t.strip()
+                    ]
+
+            # Generate GUID
+            card_sequence += 1
+            guid = f"{chapter_id}-{card_sequence:03d}"
+
+            if card_type == "Basic":
+                if not field1 or not field2:
+                    warnings.append(f"Line {line_num}: Empty question or answer")
+                    continue
+                basic_cards.append(BasicCard(
+                    front=field1,
+                    back=field2,
+                    tags=tags,
+                    guid=guid,
+                ))
+            elif card_type == "Cloze":
+                if not field1:
+                    warnings.append(f"Line {line_num}: Empty cloze text")
+                    continue
+                # Validate cloze markers
+                if "{{c" not in field1:
+                    warnings.append(f"Line {line_num}: Cloze card missing {{{{c1::...}}}} markers")
+                    continue
+                cloze_cards.append(ClozeCard(
+                    text=field1,
+                    back_extra=field2,
+                    tags=tags,
+                    guid=guid,
+                ))
             else:
-                text, back_extra = line, ""
+                warnings.append(f"Line {line_num}: Unknown card type '{card_type}'")
 
-            # Only add if it contains cloze markers
-            if "{{c" in text:
-                cards.append(ClozeCard(text=text, back_extra=back_extra))
-
-        return cards
-
-    def generate_basic(self, chapter: ChapterOutput) -> list[BasicCard]:
-        """Generate basic flashcards for a chapter."""
-        prompt = self._build_basic_prompt(chapter)
-        response_text = self._call_gemini(prompt, card_type="basic")
-        return self._parse_basic_cards(response_text)
-
-    def generate_cloze(self, chapter: ChapterOutput) -> list[ClozeCard]:
-        """Generate cloze flashcards for a chapter."""
-        prompt = self._build_cloze_prompt(chapter)
-        response_text = self._call_gemini(prompt, card_type="cloze")
-        return self._parse_cloze_cards(response_text)
+        return basic_cards, cloze_cards, warnings
 
     def generate(self, chapter: ChapterOutput, source_file: str) -> GenerationResult:
-        """Generate both basic and cloze flashcards for a chapter."""
+        """Generate flashcards for a chapter using unified prompt."""
         start_time = time.time()
 
-        # Generate basic cards
-        basic_cards = self.generate_basic(chapter)
+        # Build and send prompt
+        prompt = self._build_prompt(chapter)
+        response_text = self._call_gemini(prompt)
 
-        # Generate cloze cards
-        cloze_cards = self.generate_cloze(chapter)
+        # Extract chapter ID for GUIDs
+        chapter_id = self._extract_chapter_id(source_file)
+
+        # Parse unified output
+        basic_cards, cloze_cards, warnings = self._parse_unified_output(
+            response_text, chapter_id
+        )
+
+        # Log warnings if console available
+        if warnings and self.console:
+            for warning in warnings:
+                self.console.print(f"  [yellow]Warning:[/] {warning}")
+
+        # Warn if no cards generated
+        if not basic_cards and not cloze_cards:
+            if self.console:
+                self.console.print("  [yellow]Warning:[/] No valid cards generated")
 
         generation_time = time.time() - start_time
 

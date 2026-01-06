@@ -190,7 +190,7 @@ def generate(
         typer.Option(
             "--max-cards",
             "-n",
-            help="Maximum cards per chapter (default: AI decides)",
+            help="Maximum total cards per chapter (default: AI decides)",
             min=1,
         ),
     ] = None,
@@ -202,6 +202,22 @@ def generate(
             help="Gemini model to use",
         ),
     ] = "gemini-3-pro-preview",
+    deck: Annotated[
+        Optional[str],
+        typer.Option(
+            "--deck",
+            "-d",
+            help="Override deck name (default: auto-generated from book/chapter)",
+        ),
+    ] = None,
+    tags: Annotated[
+        Optional[list[str]],
+        typer.Option(
+            "--tag",
+            "-t",
+            help="Add extra global tags (can be used multiple times)",
+        ),
+    ] = None,
     dry_run: Annotated[
         bool,
         typer.Option(
@@ -218,7 +234,12 @@ def generate(
         ),
     ] = False,
 ) -> None:
-    """Generate AI-powered flashcards from parsed chapters using Gemini."""
+    """Generate AI-powered flashcards from parsed chapters.
+
+    Outputs a single combined file per chapter (chapter_XXX_cards.txt) containing
+    both Basic and Cloze cards with Anki import headers for automatic deck placement,
+    tags, and GUID support.
+    """
     try:
         from anki_gen.commands.generate import execute_generate
 
@@ -230,6 +251,8 @@ def generate(
             quiet=quiet,
             console=console,
             chapters=chapters,
+            deck=deck,
+            tags=tags,
         )
     except Exception as e:
         console.print(f"[red]Error: {e}[/]")

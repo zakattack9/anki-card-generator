@@ -1,13 +1,15 @@
 """Generate command implementation."""
 
+import json
+import re
 from pathlib import Path
 
 from rich.console import Console
 from rich.panel import Panel
 
 from anki_gen.core.flashcard_generator import FlashcardGenerator, GeminiError
-from anki_gen.models.flashcard import GenerationResult
-from anki_gen.models.output import ChapterOutput
+from anki_gen.models.flashcard import AnkiExportConfig, GenerationResult
+from anki_gen.models.output import BookOutput, ChapterOutput
 
 
 def find_chapter_files(chapters_dir: Path) -> list[Path]:
@@ -66,36 +68,102 @@ def load_chapter(path: Path) -> ChapterOutput:
     return ChapterOutput.model_validate_json(path.read_text())
 
 
-def save_generation_result(result: GenerationResult, chapter_path: Path) -> tuple[Path, Path, Path]:
+def load_manifest(chapters_dir: Path) -> BookOutput:
+    """Load the manifest.json file from chapters directory."""
+    manifest_path = chapters_dir / "manifest.json"
+    if not manifest_path.exists():
+        raise FileNotFoundError(
+            f"manifest.json not found in {chapters_dir}. "
+            "Make sure you've run 'anki-gen parse' first."
+        )
+    return BookOutput.model_validate_json(manifest_path.read_text())
+
+
+def extract_chapter_number(chapter_path: Path) -> int:
+    """Extract chapter number from filename (chapter_011.json -> 11)."""
+    match = re.search(r"chapter_(\d+)", chapter_path.stem)
+    if match:
+        return int(match.group(1))
+    return 0
+
+
+def build_deck_name(
+    book_title: str,
+    chapter_title: str,
+    chapter_num: int,
+    deck_override: str | None = None,
+) -> str:
+    """Build hierarchical deck name for Anki.
+
+    Format: {Book Title}::Chapter {NN} - {Chapter Title}
+    """
+    if deck_override:
+        return deck_override
+
+    # Sanitize book title (remove :: to avoid hierarchy conflicts)
+    safe_book = AnkiExportConfig.sanitize_deck_name(book_title)
+    # Truncate if too long
+    if len(safe_book) > 50:
+        safe_book = safe_book[:47] + "..."
+
+    # Sanitize chapter title
+    safe_chapter = AnkiExportConfig.sanitize_deck_name(chapter_title)
+    if len(safe_chapter) > 40:
+        safe_chapter = safe_chapter[:37] + "..."
+
+    return f"{safe_book}::Chapter {chapter_num:02d} - {safe_chapter}"
+
+
+def build_export_config(
+    manifest: BookOutput,
+    chapter_path: Path,
+    chapter: ChapterOutput,
+    deck_override: str | None = None,
+    extra_tags: list[str] | None = None,
+) -> AnkiExportConfig:
+    """Build export configuration for a chapter."""
+    chapter_num = extract_chapter_number(chapter_path)
+    chapter_id = f"ch{chapter_num:03d}"
+
+    deck_name = build_deck_name(
+        book_title=manifest.book_title,
+        chapter_title=chapter.metadata.title,
+        chapter_num=chapter_num,
+        deck_override=deck_override,
+    )
+
+    book_slug = AnkiExportConfig.slugify(manifest.book_title)
+
+    return AnkiExportConfig(
+        deck_name=deck_name,
+        global_tags=extra_tags or [],
+        book_slug=book_slug,
+        chapter_id=chapter_id,
+    )
+
+
+def save_generation_result(
+    result: GenerationResult,
+    chapter_path: Path,
+    config: AnkiExportConfig,
+) -> tuple[Path, Path]:
     """Save generation results to files.
 
-    Returns paths to: (basic_txt, cloze_txt, metadata_json)
+    Returns paths to: (cards_txt, metadata_json)
     """
     chapter_dir = chapter_path.parent
-    # Use chapter filename as base (e.g., chapter_001 -> chapter_001_basic.txt)
     base_name = chapter_path.stem
 
-    # Save basic cards
-    basic_path = chapter_dir / f"{base_name}_basic.txt"
-    basic_content = result.to_basic_txt()
-    if basic_content:
-        basic_path.write_text(basic_content)
-    else:
-        basic_path = None
-
-    # Save cloze cards
-    cloze_path = chapter_dir / f"{base_name}_cloze.txt"
-    cloze_content = result.to_cloze_txt()
-    if cloze_content:
-        cloze_path.write_text(cloze_content)
-    else:
-        cloze_path = None
+    # Save combined cards file
+    cards_path = chapter_dir / f"{base_name}_cards.txt"
+    cards_content = result.to_combined_txt(config)
+    cards_path.write_text(cards_content)
 
     # Save metadata
     meta_path = chapter_dir / f"{base_name}_meta.json"
     meta_path.write_text(result.metadata.model_dump_json(indent=2))
 
-    return basic_path, cloze_path, meta_path
+    return cards_path, meta_path
 
 
 def execute_generate(
@@ -106,8 +174,17 @@ def execute_generate(
     quiet: bool,
     console: Console,
     chapters: str | None = None,
+    deck: str | None = None,
+    tags: list[str] | None = None,
 ) -> None:
     """Execute the generate command."""
+    # Load manifest (required for book metadata)
+    try:
+        manifest = load_manifest(chapters_dir)
+    except FileNotFoundError as e:
+        console.print(f"[red]Error:[/] {e}")
+        return
+
     all_chapter_files = find_chapter_files(chapters_dir)
     chapter_files = filter_chapter_files(all_chapter_files, chapters)
 
@@ -117,8 +194,13 @@ def execute_generate(
         return
 
     if not quiet:
+        console.print(f"[dim]Book:[/] {manifest.book_title[:60]}...")
         console.print(f"[dim]Found {len(chapter_files)} chapter(s) to process[/]")
         console.print(f"[dim]Model: {model}[/]")
+        if deck:
+            console.print(f"[dim]Deck override: {deck}[/]")
+        if tags:
+            console.print(f"[dim]Extra tags: {', '.join(tags)}[/]")
         console.print()
 
     if dry_run:
@@ -126,8 +208,11 @@ def execute_generate(
         console.print()
         for path in chapter_files:
             chapter = load_chapter(path)
+            chapter_num = extract_chapter_number(path)
+            config = build_export_config(manifest, path, chapter, deck, tags)
             console.print(f"  Would process: [cyan]{chapter.metadata.title}[/]")
             console.print(f"    Words: {chapter.metadata.word_count:,}")
+            console.print(f"    Deck: {config.deck_name}")
         return
 
     generator = FlashcardGenerator(
@@ -140,8 +225,6 @@ def execute_generate(
     results: list[tuple[str, int, int]] = []  # (title, basic_count, cloze_count)
     errors: list[tuple[str, str]] = []  # (title, error_message)
 
-    # When streaming, we show a Live panel per generation, so don't use Progress spinner
-    # Progress spinner is only used in quiet mode (no streaming display)
     for i, chapter_path in enumerate(chapter_files):
         chapter = load_chapter(chapter_path)
         title = chapter.metadata.title
@@ -151,8 +234,14 @@ def execute_generate(
             console.print(f"\n[bold cyan]Chapter {i + 1}/{len(chapter_files)}:[/] {short_title}")
 
         try:
+            # Generate cards
             result = generator.generate(chapter, chapter_path.name)
-            save_generation_result(result, chapter_path)
+
+            # Build export config
+            config = build_export_config(manifest, chapter_path, chapter, deck, tags)
+
+            # Save combined file
+            save_generation_result(result, chapter_path, config)
             results.append((title, result.metadata.basic_count, result.metadata.cloze_count))
 
             if not quiet:
@@ -184,6 +273,7 @@ def execute_generate(
                     f"[green]Generated flashcards for {len(results)} chapter(s)[/]\n\n"
                     f"[dim]Total basic cards:[/] {total_basic}\n"
                     f"[dim]Total cloze cards:[/] {total_cloze}\n"
+                    f"[dim]Total cards:[/] {total_basic + total_cloze}\n"
                     f"[dim]Output directory:[/] {chapters_dir}",
                     title="Complete",
                     border_style="green",
@@ -195,7 +285,7 @@ def execute_generate(
             for title, basic_count, cloze_count in results:
                 short_title = title[:50] + "..." if len(title) > 50 else title
                 console.print(f"  {short_title}")
-                console.print(f"    [green]{basic_count}[/] basic, [blue]{cloze_count}[/] cloze")
+                console.print(f"    [green]{basic_count}[/] basic, [blue]{cloze_count}[/] cloze = {basic_count + cloze_count} total")
 
         if errors:
             console.print()
