@@ -16,6 +16,52 @@ def find_chapter_files(chapters_dir: Path) -> list[Path]:
     return sorted(chapters_dir.glob("chapter_*.json"))
 
 
+def parse_chapter_selection(selection: str, total_chapters: int) -> set[int]:
+    """Parse chapter selection string like '1,3,5-7' into set of indices.
+
+    Returns 1-based chapter numbers.
+    """
+    if selection.lower() == "all":
+        return set(range(1, total_chapters + 1))
+
+    result = set()
+    for part in selection.split(","):
+        part = part.strip()
+        if "-" in part:
+            start, end = part.split("-", 1)
+            start_num = int(start.strip())
+            end_num = int(end.strip())
+            result.update(range(start_num, end_num + 1))
+        else:
+            result.add(int(part))
+
+    return result
+
+
+def filter_chapter_files(chapter_files: list[Path], selection: str | None) -> list[Path]:
+    """Filter chapter files based on selection string.
+
+    If selection is None, returns all files.
+    """
+    if selection is None:
+        return chapter_files
+
+    selected_nums = parse_chapter_selection(selection, len(chapter_files))
+
+    filtered = []
+    for path in chapter_files:
+        # Extract chapter number from filename (chapter_001.json -> 1)
+        try:
+            num_str = path.stem.replace("chapter_", "")
+            chapter_num = int(num_str)
+            if chapter_num in selected_nums:
+                filtered.append(path)
+        except ValueError:
+            continue
+
+    return filtered
+
+
 def load_chapter(path: Path) -> ChapterOutput:
     """Load a chapter JSON file."""
     return ChapterOutput.model_validate_json(path.read_text())
@@ -60,9 +106,11 @@ def execute_generate(
     dry_run: bool,
     quiet: bool,
     console: Console,
+    chapters: str | None = None,
 ) -> None:
     """Execute the generate command."""
-    chapter_files = find_chapter_files(chapters_dir)
+    all_chapter_files = find_chapter_files(chapters_dir)
+    chapter_files = filter_chapter_files(all_chapter_files, chapters)
 
     if not chapter_files:
         console.print(f"[red]No chapter files found in {chapters_dir}[/]")

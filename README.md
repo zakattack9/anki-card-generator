@@ -119,8 +119,14 @@ anki-gen cache clear
 Generate AI-powered flashcards from parsed chapters using the Gemini CLI:
 
 ```bash
-# Generate flashcards (AI decides card count)
+# Generate flashcards for all chapters
 anki-gen generate ./book_chapters/
+
+# Generate for specific chapters only
+anki-gen generate ./book_chapters/ --chapters 1,3,5
+
+# Generate for a range of chapters
+anki-gen generate ./book_chapters/ --chapters 1-5
 
 # Limit cards per chapter
 anki-gen generate ./book_chapters/ --max-cards 20

@@ -173,6 +173,14 @@ def generate(
             resolve_path=True,
         ),
     ],
+    chapters: Annotated[
+        Optional[str],
+        typer.Option(
+            "--chapters",
+            "-c",
+            help="Chapters to generate: '1,3,5-7' or 'all' (default: all)",
+        ),
+    ] = None,
     max_cards: Annotated[
         Optional[int],
         typer.Option(
@@ -217,6 +225,7 @@ def generate(
             dry_run=dry_run,
             quiet=quiet,
             console=console,
+            chapters=chapters,
         )
     except Exception as e:
         console.print(f"[red]Error: {e}[/]")
