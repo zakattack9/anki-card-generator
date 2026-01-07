@@ -27,6 +27,7 @@ wheels/
 .venv/
 venv/
 ENV/
+.python-version
 
 # IDE
 .idea/
