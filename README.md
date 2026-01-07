@@ -20,7 +20,9 @@
 ## Quick Start
 
 ```bash
-# Install
+# Clone and install
+git clone https://github.com/yourusername/anki-gen.git
+cd anki-gen
 pip install -e .
 
 # 1. See what's in your book
