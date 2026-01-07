@@ -1,6 +1,21 @@
-# anki-gen
+<p align="center">
+  <img src="assets/anki-icon.png" alt="anki-gen icon" width="120" height="120">
+</p>
 
-A CLI tool for parsing EPUB files and generating Anki flashcards using AI.
+<h1 align="center">anki-gen</h1>
+
+<p align="center">
+  <strong>A CLI tool for parsing EPUB files and generating Anki flashcards using AI.</strong>
+</p>
+
+<p align="center">
+  <a href="#quick-start">Quick Start</a> •
+  <a href="#installation">Installation</a> •
+  <a href="#commands">Commands</a> •
+  <a href="#workflow-overview">Workflow</a>
+</p>
+
+---
 
 ## Quick Start
 
