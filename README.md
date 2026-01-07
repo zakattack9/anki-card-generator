@@ -21,8 +21,8 @@
 
 ```bash
 # Clone and install
-git clone https://github.com/yourusername/anki-gen.git
-cd anki-gen
+git clone https://github.com/zakattack9/anki-card-generator.git
+cd anki-card-generator
 pip install -e .
 
 # 1. See what's in your book
