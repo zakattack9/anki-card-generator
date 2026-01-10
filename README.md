@@ -301,6 +301,8 @@ anki-gen status ./book_chapters/
 - [x] PDF support with cascade detection (bookmarks, font, patterns, layout)
 
 **Planned:**
+- [ ] EPUB subsection extraction (TOC-based, matching PDF granularity)
+- [ ] Hierarchical section selection (select parent to include children)
 - [ ] Multiple AI providers (OpenAI, Anthropic)
 - [ ] Customizable flashcard templates
 - [ ] Batch processing multiple books
