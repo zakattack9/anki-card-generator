@@ -254,9 +254,16 @@ SECTION_PATTERNS: list[tuple[str, float, str]] = [
     (r"^Part\s+(\d+)[:\s]", 0.60, "part_num"),
     (r"^PART\s+(\d+)[:\s]", 0.60, "part_num"),
     (r"^Part\s+([IVXLC]+)[:\s]", 0.55, "part_roman"),
+    # Article patterns (legal documents)
+    (r"^Article\s+(\d+)[:\.\s]", 0.60, "article"),
+    (r"^ARTICLE\s+(\d+)[:\.\s]", 0.60, "article"),
+    (r"^Article\s+([IVXLC]+)[:\.\s]", 0.55, "article_roman"),
     # Section patterns
     (r"^Section\s+(\d+)[:\.\s]", 0.55, "section"),
+    (r"^SECTION\s+(\d+)[:\.\s]", 0.55, "section"),
+    # Numbered sections (various formats)
     (r"^(\d+)\.\s+[A-Z][a-z]", 0.50, "numbered"),  # "1. Introduction"
+    (r"^(\d+)\s+[A-Z]{2,}", 0.55, "numbered_allcaps"),  # "1 DEFINITIONS"
     (r"^(\d+\.\d+)\s+[A-Z]", 0.50, "decimal"),  # "1.1 Overview"
     # Roman numeral standalone
     (r"^([IVXLC]+)\.\s+[A-Z]", 0.50, "roman"),
@@ -271,13 +278,24 @@ def detect_by_pattern(pdf_path: Path) -> DetectionResult | None:
     Match common section/chapter patterns in text.
     Works well for consistently formatted textbooks.
     """
-    text = _extract_full_text(pdf_path)
-    lines = text.split("\n")
+    # Extract text with page boundaries for line-to-page mapping
+    reader = pypdf.PdfReader(str(pdf_path))
+    line_to_page: dict[int, int] = {}
+    all_lines: list[str] = []
+    current_line = 0
+
+    for page_num, page in enumerate(reader.pages):
+        page_text = page.extract_text() or ""
+        page_lines = page_text.split("\n")
+        for _ in page_lines:
+            line_to_page[current_line] = page_num
+            current_line += 1
+        all_lines.extend(page_lines)
 
     sections: list[Section] = []
     seen_patterns: dict[str, list] = {}  # Track pattern sequences
 
-    for line_num, line in enumerate(lines):
+    for line_num, line in enumerate(all_lines):
         line_stripped = line.strip()
         if not line_stripped or len(line_stripped) > 100:
             continue
@@ -293,6 +311,7 @@ def detect_by_pattern(pdf_path: Path) -> DetectionResult | None:
                 sections.append(
                     Section(
                         title=line_stripped,
+                        page_start=line_to_page.get(line_num, 0),
                         line_number=line_num,
                         level=1 if "part" in pattern_type else 2,
                         confidence=base_confidence,
@@ -341,7 +360,14 @@ def _check_sequence(values: list[str], pattern_type: str) -> bool:
             return nums == list(range(nums[0], nums[0] + len(nums)))
         except ValueError:
             return False
-    elif pattern_type in ("chapter_num", "part_num", "section", "numbered"):
+    elif pattern_type in (
+        "chapter_num",
+        "part_num",
+        "section",
+        "numbered",
+        "numbered_allcaps",
+        "article",
+    ):
         try:
             nums = [int(v) for v in values]
             return nums == list(range(nums[0], nums[0] + len(nums)))
