@@ -30,6 +30,7 @@ class Chapter(BaseModel):
     page_end: int | None = None
     extraction_confidence: float = 1.0
     extraction_method: ExtractionMethod = ExtractionMethod.EPUB_NATIVE
+    level: int = 0  # Nesting level for hierarchical display
 
 
 class BookMetadata(BaseModel):

@@ -883,6 +883,7 @@ class PdfParser(BookParser):
                     page_end=page_end,
                     extraction_confidence=section.confidence,
                     extraction_method=self._detection_result.method,
+                    level=section.level,
                 )
             )
 
