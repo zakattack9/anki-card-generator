@@ -1,7 +1,7 @@
 [project]
 name = "anki-gen"
-version = "0.1.0"
-description = "Parse EPUB files into AI-readable format for flashcard generation"
+version = "0.2.0"
+description = "Parse EPUB and PDF files into AI-readable format for flashcard generation"
 requires-python = ">=3.10"
 dependencies = [
     "typer>=0.9.0",
@@ -11,6 +11,9 @@ dependencies = [
     "pydantic>=2.5",
     "rich>=13.0",
     "markdownify>=0.11",
+    # PDF support
+    "pypdf>=4.0,<5.0",
+    "pdfplumber>=0.10,<1.0",
 ]
 
 [project.scripts]

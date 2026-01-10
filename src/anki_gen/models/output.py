@@ -13,11 +13,22 @@ class ChapterMetadata(BaseModel):
     chapter_index: int
     title: str
     source_file: str
-    source_epub: str
+    source_path: str  # Generic path (works for both EPUB and PDF)
     extracted_at: datetime = Field(default_factory=datetime.now)
     word_count: int
     character_count: int
     paragraph_count: int
+    # New fields for PDF support
+    page_start: int | None = None
+    page_end: int | None = None
+    extraction_confidence: float = 1.0
+    extraction_method: str = "epub_native"
+
+    # Backward compatibility property
+    @property
+    def source_epub(self) -> str:
+        """Deprecated: Use source_path instead."""
+        return self.source_path
 
 
 class ChapterOutput(BaseModel):
@@ -39,3 +50,8 @@ class BookOutput(BaseModel):
     output_directory: str
     created_at: datetime = Field(default_factory=datetime.now)
     chapters: list[ChapterMetadata]
+    # New fields for multi-format support
+    source_format: str = "epub"
+    extraction_method: str = "epub_native"
+    extraction_confidence: float = 1.0
+    warnings: list[str] = Field(default_factory=list)

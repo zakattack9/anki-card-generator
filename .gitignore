@@ -47,8 +47,9 @@ htmlcov/
 # Output directories (generated chapter files)
 *_chapters/
 
-# EPUB files
+# Book files
 *.epub
+*.pdf
 
 # Serena
 .serena/

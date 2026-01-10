@@ -12,9 +12,9 @@ from rich.table import Table
 
 from anki_gen.cache.manager import CacheManager
 from anki_gen.cache.models import CachedEpubStructure
-from anki_gen.core.epub_parser import EpubParser
 from anki_gen.core.output_writer import OutputWriter
-from anki_gen.models.epub import ParsedEpub, TOCEntry
+from anki_gen.core.parser_factory import ParserFactory
+from anki_gen.models.book import ParsedBook, TOCEntry
 
 
 def parse_chapter_selection(selection: str, total_chapters: int) -> list[int]:
@@ -74,9 +74,9 @@ def interactive_select(
     console.print()
     console.print(
         Panel(
-            "[bold]Select chapters to extract:[/]\n"
-            "  - Enter chapter numbers (e.g., [cyan]1,3,5-7[/])\n"
-            "  - Enter [cyan]all[/] for all chapters\n"
+            "[bold]Select sections to extract:[/]\n"
+            "  - Enter section numbers (e.g., [cyan]1,3,5-7[/])\n"
+            "  - Enter [cyan]all[/] for all sections\n"
             "  - Enter [cyan]q[/] to quit",
             title="Selection",
             border_style="blue",
@@ -93,23 +93,23 @@ def interactive_select(
         indices = parse_chapter_selection(selection, len(chapters))
 
         if indices:
-            console.print(f"\n[green]Selected {len(indices)} chapter(s)[/]")
+            console.print(f"\n[green]Selected {len(indices)} section(s)[/]")
             return indices
         else:
             console.print("[red]Invalid selection. Please try again.[/]")
 
 
-def get_default_output_dir(epub_path: Path) -> Path:
-    """Get default output directory based on epub filename."""
-    stem = epub_path.stem
+def get_default_output_dir(book_path: Path) -> Path:
+    """Get default output directory based on book filename."""
+    stem = book_path.stem
     # Clean up the filename for directory name
     clean_stem = re.sub(r"[^\w\s-]", "", stem).strip()
     clean_stem = re.sub(r"[-\s]+", "_", clean_stem)
-    return epub_path.parent / f"{clean_stem}_chapters"
+    return book_path.parent / f"{clean_stem}_chapters"
 
 
 def execute_parse(
-    epub_path: Path,
+    book_path: Path,
     chapters: str | None,
     interactive: bool,
     output_dir: Path | None,
@@ -119,51 +119,80 @@ def execute_parse(
     console: Console,
 ) -> None:
     """Execute the parse command."""
-    # Determine cache directory (use epub's parent directory)
-    cache_manager = CacheManager(epub_path.parent)
+    # Detect format
+    file_format = ParserFactory.detect_format(book_path)
+    if file_format == "unknown":
+        console.print(f"[red]Unsupported file format: {book_path.suffix}[/]")
+        console.print("[dim]Supported formats: .epub, .pdf[/]")
+        return
 
-    parsed: ParsedEpub | None = None
+    # Determine cache directory (use book's parent directory)
+    cache_manager = CacheManager(book_path.parent)
+
+    parsed: ParsedBook | None = None
     cached: CachedEpubStructure | None = None
 
-    # Check cache first
-    if not force:
-        cached = cache_manager.get_cached_structure(epub_path)
+    # Check cache first (only for EPUB currently, PDF caching TBD)
+    if not force and file_format == "epub":
+        cached = cache_manager.get_cached_structure(book_path)
         if cached and not quiet:
-            console.print("[dim]Using cached epub structure[/]")
+            console.print("[dim]Using cached structure[/]")
 
     # Parse if not cached
     if cached is None:
+        format_name = "PDF" if file_format == "pdf" else "EPUB"
         if not quiet:
             with Progress(
                 SpinnerColumn(),
                 TextColumn("[progress.description]{task.description}"),
                 console=console,
             ) as progress:
-                progress.add_task("Parsing EPUB...", total=None)
-                parser = EpubParser(epub_path)
+                progress.add_task(f"Parsing {format_name}...", total=None)
+                parser = ParserFactory.create(book_path)
                 parsed = parser.parse()
         else:
-            parser = EpubParser(epub_path)
+            parser = ParserFactory.create(book_path)
             parsed = parser.parse()
 
-        # Save to cache
-        cache_manager.save_structure(epub_path, parsed)
-        if not quiet:
-            console.print("[dim]Cached epub structure[/]")
+        # Save to cache (EPUB only for now)
+        if file_format == "epub":
+            cache_manager.save_structure(book_path, parsed)
+            if not quiet:
+                console.print("[dim]Cached structure[/]")
     else:
-        # Reconstruct minimal ParsedEpub from cache for processing
-        # We need to re-parse to get raw content for output
-        parser = EpubParser(epub_path)
+        # Reconstruct from cache - re-parse to get raw content
+        parser = ParserFactory.create(book_path)
         parsed = parser.parse()
 
     # Display book info
     if not quiet:
         console.print()
+
+        # Build info panel content
+        info_lines = [
+            f"[bold]{parsed.metadata.title}[/]",
+            f"[dim]Author(s):[/] {', '.join(parsed.metadata.authors) or 'Unknown'}",
+            f"[dim]Sections:[/] {len(parsed.chapters)}",
+            f"[dim]Format:[/] {parsed.source_format.upper()}",
+        ]
+
+        # Add extraction method for PDF
+        if parsed.source_format == "pdf":
+            method_display = parsed.extraction_method.value.replace("_", " ").title()
+            info_lines.append(
+                f"[dim]Detection:[/] {method_display} "
+                f"(confidence: {parsed.extraction_confidence:.0%})"
+            )
+
+        # Show warnings if any
+        if parsed.warnings:
+            info_lines.append("")
+            for warning in parsed.warnings:
+                info_lines.append(f"[yellow]⚠ {warning}[/]")
+
         console.print(
             Panel(
-                f"[bold]{parsed.metadata.title}[/]\n"
-                f"[dim]Author(s):[/] {', '.join(parsed.metadata.authors) or 'Unknown'}\n"
-                f"[dim]Chapters:[/] {len(parsed.chapters)}",
+                "\n".join(info_lines),
                 title="Book Info",
                 border_style="green",
             )
@@ -180,26 +209,30 @@ def execute_parse(
         selected_indices = parse_chapter_selection(chapters, len(parsed.chapters))
 
     if not selected_indices:
-        console.print("[yellow]No chapters selected. Exiting.[/]")
+        console.print("[yellow]No sections selected. Exiting.[/]")
         return
 
     # Determine output directory
-    final_output_dir = output_dir or get_default_output_dir(epub_path)
+    final_output_dir = output_dir or get_default_output_dir(book_path)
 
     # Write chapters
-    writer = OutputWriter(final_output_dir, epub_path)
+    writer = OutputWriter(final_output_dir, book_path)
     chapter_metadata = []
 
     if not quiet:
         console.print()
         with Progress(console=console) as progress:
-            task = progress.add_task("Extracting chapters...", total=len(selected_indices))
+            task = progress.add_task(
+                "Extracting sections...", total=len(selected_indices)
+            )
 
             for idx in selected_indices:
                 chapter = parsed.chapters[idx]
                 _, metadata = writer.write_chapter(chapter, output_format)
                 chapter_metadata.append(metadata)
-                progress.update(task, advance=1, description=f"Extracting: {chapter.title[:40]}...")
+                progress.update(
+                    task, advance=1, description=f"Extracting: {chapter.title[:40]}..."
+                )
     else:
         for idx in selected_indices:
             chapter = parsed.chapters[idx]
@@ -212,11 +245,25 @@ def execute_parse(
     # Summary
     if not quiet:
         console.print()
+
+        summary_lines = [
+            f"[green]Successfully extracted {len(selected_indices)} section(s)[/]",
+            "",
+            f"[dim]Output directory:[/] {final_output_dir}",
+            f"[dim]Manifest:[/] {manifest_path.name}",
+        ]
+
+        # Add extraction info for PDF
+        if parsed.source_format == "pdf":
+            method_display = parsed.extraction_method.value.replace("_", " ").title()
+            summary_lines.append(f"[dim]Extraction method:[/] {method_display}")
+            summary_lines.append(
+                f"[dim]Average confidence:[/] {parsed.extraction_confidence:.0%}"
+            )
+
         console.print(
             Panel(
-                f"[green]Successfully extracted {len(selected_indices)} chapter(s)[/]\n\n"
-                f"[dim]Output directory:[/] {final_output_dir}\n"
-                f"[dim]Manifest:[/] {manifest_path.name}",
+                "\n".join(summary_lines),
                 title="Complete",
                 border_style="green",
             )

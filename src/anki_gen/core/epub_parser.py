@@ -7,29 +7,35 @@ import ebooklib
 from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
 from ebooklib import epub
 
-from anki_gen.models.epub import BookMetadata, Chapter, ParsedEpub, TOCEntry
+from anki_gen.core.parser_factory import BookParser
+from anki_gen.models.book import BookMetadata, Chapter, ParsedBook, TOCEntry
+from anki_gen.models.extraction import ExtractionMethod
 
 # Suppress XML parsing warnings - EPUB files often use XHTML
 warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
 
 
-class EpubParser:
+class EpubParser(BookParser):
     """Parse EPUB files and extract structure."""
 
     def __init__(self, epub_path: Path):
         self.path = epub_path
         self.book = epub.read_epub(str(epub_path))
 
-    def parse(self) -> ParsedEpub:
+    def parse(self) -> ParsedBook:
         """Parse the EPUB and return complete structure."""
-        return ParsedEpub(
-            metadata=self._get_metadata(),
+        return ParsedBook(
+            metadata=self.get_metadata(),
             toc=self._get_toc(),
             chapters=self._get_chapters(),
             spine_order=self._get_spine(),
+            source_format="epub",
+            extraction_method=ExtractionMethod.EPUB_NATIVE,
+            extraction_confidence=1.0,
+            warnings=[],
         )
 
-    def _get_metadata(self) -> BookMetadata:
+    def get_metadata(self) -> BookMetadata:
         """Extract book metadata."""
         title = self.book.get_metadata("DC", "title")
         authors = self.book.get_metadata("DC", "creator")
@@ -109,6 +115,11 @@ class EpubParser:
                     raw_content=content,
                     word_count=word_count,
                     has_images=b"<img" in content.lower(),
+                    # New fields for unified model
+                    page_start=None,
+                    page_end=None,
+                    extraction_confidence=1.0,
+                    extraction_method=ExtractionMethod.EPUB_NATIVE,
                 )
             )
             index += 1

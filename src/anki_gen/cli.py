@@ -10,11 +10,11 @@ from rich.table import Table
 
 from anki_gen.cache.manager import CacheManager
 from anki_gen.commands.parse import execute_parse
-from anki_gen.core.epub_parser import EpubParser
+from anki_gen.core.parser_factory import ParserFactory
 
 app = typer.Typer(
     name="anki-gen",
-    help="Parse EPUB files into AI-readable format for flashcard generation.",
+    help="Parse EPUB/PDF files into AI-readable format for flashcard generation.",
     add_completion=False,
     no_args_is_help=True,
 )
@@ -28,10 +28,10 @@ app.add_typer(cache_app, name="cache")
 
 @app.command()
 def parse(
-    epub_path: Annotated[
+    book_path: Annotated[
         Path,
         typer.Argument(
-            help="Path to the EPUB file to parse",
+            help="Path to the book file (EPUB or PDF)",
             exists=True,
             file_okay=True,
             dir_okay=False,
@@ -43,7 +43,7 @@ def parse(
         typer.Option(
             "--sections",
             "-s",
-            help="EPUB sections to extract by index: '1,3,5-7' or 'all' (use 'anki-gen info' to see indices)",
+            help="Sections to extract by index: '1,3,5-7' or 'all' (use 'anki-gen info' to see indices)",
         ),
     ] = None,
     interactive: Annotated[
@@ -59,7 +59,7 @@ def parse(
         typer.Option(
             "--output-dir",
             "-o",
-            help="Output directory (default: {epub_name}_chapters/)",
+            help="Output directory (default: {book_name}_chapters/)",
         ),
     ] = None,
     output_format: Annotated[
@@ -86,7 +86,13 @@ def parse(
         ),
     ] = False,
 ) -> None:
-    """Parse an EPUB file and extract sections."""
+    """Parse an EPUB or PDF file and extract sections."""
+    # Validate file format
+    if not ParserFactory.is_supported(book_path):
+        console.print(f"[red]Unsupported file format: {book_path.suffix}[/]")
+        console.print("[dim]Supported formats: .epub, .pdf[/]")
+        raise typer.Exit(1)
+
     if output_format not in ("markdown", "text", "html"):
         console.print(
             f"[red]Invalid format: {output_format}. Use markdown, text, or html.[/]"
@@ -95,7 +101,7 @@ def parse(
 
     try:
         execute_parse(
-            epub_path=epub_path,
+            book_path=book_path,
             chapters=sections,  # internally still uses 'chapters' param name
             interactive=interactive,
             output_dir=output_dir,
@@ -111,10 +117,10 @@ def parse(
 
 @app.command()
 def info(
-    epub_path: Annotated[
+    book_path: Annotated[
         Path,
         typer.Argument(
-            help="Path to the EPUB file",
+            help="Path to the book file (EPUB or PDF)",
             exists=True,
             file_okay=True,
             dir_okay=False,
@@ -122,20 +128,54 @@ def info(
         ),
     ],
 ) -> None:
-    """Display EPUB metadata and table of contents."""
+    """Display book metadata and table of contents."""
+    # Validate file format
+    if not ParserFactory.is_supported(book_path):
+        console.print(f"[red]Unsupported file format: {book_path.suffix}[/]")
+        console.print("[dim]Supported formats: .epub, .pdf[/]")
+        raise typer.Exit(1)
+
     try:
-        parser = EpubParser(epub_path)
+        parser = ParserFactory.create(book_path)
         parsed = parser.parse()
 
-        # Book info
+        # Build book info panel
+        info_lines = [
+            f"[bold]{parsed.metadata.title}[/]",
+            "",
+            f"[dim]Author(s):[/] {', '.join(parsed.metadata.authors) or 'Unknown'}",
+            f"[dim]Format:[/] {parsed.source_format.upper()}",
+        ]
+
+        # Add language/publisher for EPUB
+        if parsed.source_format == "epub":
+            info_lines.append(
+                f"[dim]Language:[/] {parsed.metadata.language or 'Unknown'}"
+            )
+            info_lines.append(
+                f"[dim]Publisher:[/] {parsed.metadata.publisher or 'Unknown'}"
+            )
+
+        info_lines.append(f"[dim]Total Sections:[/] {len(parsed.chapters)}")
+
+        # Add extraction info for PDF
+        if parsed.source_format == "pdf":
+            method_display = parsed.extraction_method.value.replace("_", " ").title()
+            info_lines.append(
+                f"[dim]Detection:[/] {method_display} "
+                f"(confidence: {parsed.extraction_confidence:.0%})"
+            )
+
+        # Show warnings if any
+        if parsed.warnings:
+            info_lines.append("")
+            for warning in parsed.warnings:
+                info_lines.append(f"[yellow]⚠ {warning}[/]")
+
         console.print()
         console.print(
             Panel(
-                f"[bold]{parsed.metadata.title}[/]\n\n"
-                f"[dim]Author(s):[/] {', '.join(parsed.metadata.authors) or 'Unknown'}\n"
-                f"[dim]Language:[/] {parsed.metadata.language or 'Unknown'}\n"
-                f"[dim]Publisher:[/] {parsed.metadata.publisher or 'Unknown'}\n"
-                f"[dim]Total Chapters:[/] {len(parsed.chapters)}",
+                "\n".join(info_lines),
                 title="Book Information",
                 border_style="green",
             )
@@ -150,18 +190,28 @@ def info(
         table.add_column("Title", style="white")
         table.add_column("Words", justify="right", style="green")
 
+        # Add pages column for PDF
+        if parsed.source_format == "pdf":
+            table.add_column("Pages", justify="right", style="dim")
+
         for chapter in parsed.chapters:
-            table.add_row(
+            row = [
                 str(chapter.index + 1),
                 chapter.title,
                 f"{chapter.word_count:,}",
-            )
+            ]
+            if parsed.source_format == "pdf":
+                if chapter.page_start is not None and chapter.page_end is not None:
+                    row.append(f"{chapter.page_start + 1}-{chapter.page_end + 1}")
+                else:
+                    row.append("—")
+            table.add_row(*row)
 
         console.print(table)
         console.print()
 
     except Exception as e:
-        console.print(f"[red]Error reading EPUB: {e}[/]")
+        console.print(f"[red]Error reading file: {e}[/]")
         raise typer.Exit(1)
 
 
@@ -349,12 +399,12 @@ def cache_clear(
         ),
     ] = Path("."),
 ) -> None:
-    """Clear all cached EPUB data."""
+    """Clear all cached data."""
     cache_manager = CacheManager(project_dir.resolve())
     count = cache_manager.clear_cache()
 
     if count > 0:
-        console.print(f"[green]Cleared {count} cached EPUB(s)[/]")
+        console.print(f"[green]Cleared {count} cached file(s)[/]")
     else:
         console.print("[dim]No cache to clear[/]")
 
@@ -370,15 +420,15 @@ def cache_list(
         ),
     ] = Path("."),
 ) -> None:
-    """List all cached EPUBs."""
+    """List all cached files."""
     cache_manager = CacheManager(project_dir.resolve())
     cached = cache_manager.list_cached()
 
     if not cached:
-        console.print("[dim]No cached EPUBs[/]")
+        console.print("[dim]No cached files[/]")
         return
 
-    table = Table(title="Cached EPUBs", show_header=True, header_style="bold cyan")
+    table = Table(title="Cached Files", show_header=True, header_style="bold cyan")
     table.add_column("Path", style="white")
     table.add_column("Hash", style="dim", width=12)
 

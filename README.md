@@ -5,7 +5,7 @@
 <h1 align="center">anki-gen</h1>
 
 <p align="center">
-  <strong>A CLI tool for parsing EPUB files and generating Anki flashcards using AI.</strong>
+  <strong>A CLI tool for parsing EPUB and PDF files and generating Anki flashcards using AI.</strong>
 </p>
 
 <p align="center">
@@ -25,11 +25,13 @@ git clone https://github.com/zakattack9/anki-card-generator.git
 cd anki-card-generator
 pip install -e .
 
-# 1. See what's in your book
+# 1. See what's in your book (EPUB or PDF)
 anki-gen info "My Book.epub"
+anki-gen info "My Book.pdf"
 
 # 2. Parse the sections you want (e.g., sections 10-15)
 anki-gen parse "My Book.epub" --sections 10-15
+anki-gen parse "My Book.pdf" --sections 1-5
 
 # 3. Generate flashcards
 anki-gen generate ./My_Book_chapters/
@@ -53,7 +55,7 @@ pip install -e .
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  EPUB File                                                      │
+│  EPUB or PDF File                                               │
 │    ↓                                                            │
 │  anki-gen info    → See sections and word counts                │
 │    ↓                                                            │
@@ -69,16 +71,19 @@ pip install -e .
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-**Note:** EPUB "sections" include all spine items (title pages, TOC, chapters, appendices). Use `anki-gen info` to see indices and pick the content sections you want.
+**Notes:**
+- **EPUB:** Sections include all spine items (title pages, TOC, chapters, appendices)
+- **PDF:** Sections detected via bookmarks, font analysis, or pattern matching
 
 ## Commands
 
-### `anki-gen info <epub>`
+### `anki-gen info <book>`
 
-Display book metadata and table of contents with word counts.
+Display book metadata and table of contents with word counts. Supports EPUB and PDF.
 
 ```bash
 anki-gen info "American Government.epub"
+anki-gen info "Textbook.pdf"
 ```
 
 Output:
@@ -106,17 +111,18 @@ Output:
 └──────┴──────────────────────────────┴───────┘
 ```
 
-### `anki-gen parse <epub>`
+### `anki-gen parse <book>`
 
-Extract sections from EPUB into structured JSON with Markdown content.
+Extract sections from EPUB or PDF into structured JSON with Markdown content.
 
 ```bash
 # Interactive mode - shows TOC, prompts for selection
 anki-gen parse book.epub
+anki-gen parse book.pdf
 
 # Direct selection
 anki-gen parse book.epub --sections 10-15
-anki-gen parse book.epub --sections 1,3,5-10,15
+anki-gen parse book.pdf --sections 1-5
 anki-gen parse book.epub --sections all
 
 # Options
@@ -285,16 +291,17 @@ anki-gen status ./book_chapters/
 ## Roadmap
 
 **Completed:**
-- [x] `parse` - Extract sections from EPUB
+- [x] `parse` - Extract sections from EPUB and PDF
 - [x] `generate` - AI flashcard generation via Gemini
 - [x] `export` - Combine cards into single file
 - [x] `status` - Progress summary
 - [x] Unified prompt (Basic + Cloze in one API call)
 - [x] Per-card topic tags and GUIDs
 - [x] Streaming output display
+- [x] PDF support with cascade detection (bookmarks, font, patterns, layout)
 
 **Planned:**
 - [ ] Multiple AI providers (OpenAI, Anthropic)
 - [ ] Customizable flashcard templates
-- [ ] Batch processing multiple EPUBs
+- [ ] Batch processing multiple books
 - [ ] Image support in cards
