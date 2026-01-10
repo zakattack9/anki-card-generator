@@ -195,9 +195,16 @@ def info(
             table.add_column("Pages", justify="right", style="dim")
 
         for chapter in parsed.chapters:
-            # Add indentation for nested sections (PDF with outline)
-            indent = "  " * chapter.level if chapter.level > 0 else ""
-            display_title = f"{indent}{chapter.title}"
+            # Add indentation only for PDF outline (true hierarchy)
+            if (
+                parsed.source_format == "pdf"
+                and parsed.extraction_method.value == "pdf_outline"
+                and chapter.level > 0
+            ):
+                indent = "  " * chapter.level
+                display_title = f"{indent}{chapter.title}"
+            else:
+                display_title = chapter.title
 
             row = [
                 str(chapter.index + 1),
