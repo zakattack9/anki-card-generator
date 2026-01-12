@@ -68,25 +68,28 @@ For EACH fact explicitly stated in the content, choose the optimal card type:
 3. **Atomic concepts** - Each card tests one cohesive idea
 4. **Self-contained** - Cards should be understandable using ONLY info from the source
 5. **Source-only** - Every fact in a card must come directly from the chapter content
-6. **Focus on key concepts** - Prioritize important ideas over trivial details
-7. **Escape pipes** - If content contains |, write it as \\|
+6. **Be comprehensive** - Include all substantive facts from the source; do not skip content
+7. **Fragmentary content** - For bullet points or incomplete sentences, create cards only if meaning is clear; do not complete or expand fragmentary text
+8. **Avoid pipes** - Do not use the | character in card content
 
 ## Cloze Back-Extra Guidelines
 
-The back-extra field should provide helpful context, NOT category labels.
+The back-extra field provides additional context FROM THE SOURCE, NOT external knowledge.
 
-GOOD back-extra examples:
-- "Established at the Constitutional Convention of 1787"
-- "This compromise resolved the dispute between large and small states"
-- "Changed by the 17th Amendment in 1913"
-- "These five freedoms are collectively called the First Amendment rights"
+- Use other facts from the same source that relate to the cloze deletion
+- If no additional context exists in the source, use a brief factual description
+- NEVER add information not present in the chapter content
 
-BAD back-extra (never use these):
-- "Number"
-- "Date"
-- "Definition"
-- "Clause"
-- "Term"
+GOOD back-extra (from source):
+- "Discussed in the section on membrane potentials"
+- "One of the three types listed in the source"
+- "Related to the syndrome described above"
+- "Part of the diagnostic criteria mentioned"
+
+BAD back-extra (never use):
+- Single-word labels: "Number", "Date", "Definition", "Term"
+- External knowledge not in the source
+- Elaborations you invented
 
 {max_cards_instruction}
 
@@ -107,29 +110,30 @@ Tags: 1-3 lowercase hyphenated topic words (e.g., "constitution separation-of-po
 
 ## Examples
 
-GOOD Basic card:
-Basic|Why did the framers create a system of checks and balances?|To prevent any single branch of government from becoming too powerful, ensuring that each branch can limit the powers of the others|checks-balances separation-of-powers
+GOOD Basic card (explanation from source):
+Basic|What distinguishes a focal neurologic lesion from a diffuse one?|A focal lesion is due to a specific location ("where"), while a diffuse lesion affects a system or cell type ("what")|neurology lesion-localization
 
-GOOD Cloze (single deletion):
-Cloze|The Constitution was ratified in {{{{c1::1788}}}}.|Replaced the Articles of Confederation after approval by 9 of 13 states|constitution ratification
+GOOD Cloze (single deletion - fact from source):
+Cloze|Delirium is characterized by {{{{c1::acute}}}} onset and {{{{c2::fluctuating}}}} course.|Key diagnostic features mentioned in criteria|delirium diagnosis
 
-GOOD Cloze (multiple deletions for a list - ONE concept):
-Cloze|The First Amendment protects freedom of {{{{c1::speech}}}}, {{{{c2::religion}}}}, {{{{c3::press}}}}, {{{{c4::assembly}}}}, and {{{{c5::petition}}}}.|These five freedoms form the core civil liberties in the Bill of Rights|first-amendment civil-liberties
+GOOD Cloze (list from source):
+Cloze|The three types of muscle tissue are {{{{c1::skeletal}}}}, {{{{c2::cardiac}}}}, and {{{{c3::smooth}}}}.|Listed in the tissue classification section|anatomy muscle
 
-GOOD Cloze (related pair):
-Cloze|The {{{{c1::House}}}} has members based on population, while the {{{{c2::Senate}}}} has equal representation per state.|This structure resulted from the Great Compromise|congress representation
+GOOD Cloze (related pair from source):
+Cloze|{{{{c1::Upper}}}} motor neuron lesions cause spasticity, while {{{{c2::lower}}}} motor neuron lesions cause flaccidity.|Comparison from the motor pathways section|neurology motor-neurons
 
-BAD - multiple deletions for UNRELATED facts (should be separate cards):
-Cloze|The Constitution was signed in {{{{c1::1787}}}} and has {{{{c2::seven}}}} articles and {{{{c3::27}}}} amendments.|Facts|constitution
+BAD - multiple deletions for UNRELATED facts:
+Cloze|The patient was {{{{c1::45}}}} years old and had {{{{c2::diabetes}}}} and {{{{c3::hypertension}}}}.|Facts|case-study
 
 BAD - should be cloze, not basic:
-Basic|How many members are in the House of Representatives?|435|congress
+Basic|What percentage of strokes are ischemic?|87%|stroke
 
-BAD - not self-contained:
-Cloze|{{{{c1::Article I}}}} is the longest article.|Section|constitution
+BAD - adds information not in source:
+Cloze|{{{{c1::Broca's area}}}} controls speech production and is located in the left frontal lobe near the motor cortex.|Named after Paul Broca who discovered it in 1861|neurology
+(If "Paul Broca" and "1861" weren't in the source, this is hallucination)
 
-GOOD - self-contained version (using only source info):
-Cloze|{{{{c1::Article I}}}} of the U.S. Constitution, which establishes Congress, is the longest of the seven articles.|Establishes the legislative branch|constitution congress
+GOOD - uses only source info:
+Cloze|{{{{c1::Broca's area}}}} controls speech production.|Located in the frontal lobe per the diagram|neurology speech
 
 ## Avoid These Mistakes
 
