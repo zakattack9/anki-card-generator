@@ -49,11 +49,15 @@ class AnkiExportConfig(BaseModel):
     @staticmethod
     def sanitize_deck_name(name: str) -> str:
         """Sanitize deck name for Anki compatibility."""
+        # Replace control characters (including vertical tab \u000b) with space
+        sanitized = re.sub(r"[\x00-\x1f\x7f-\x9f]", " ", name)
         # Remove :: (Anki hierarchy separator) from within names
         # Replace with - to preserve meaning
-        sanitized = re.sub(r"::", "-", name)
+        sanitized = re.sub(r"::", "-", sanitized)
         # Remove other problematic characters
         sanitized = re.sub(r'[<>:"/\\|?*]', "", sanitized)
+        # Collapse multiple spaces
+        sanitized = re.sub(r" +", " ", sanitized)
         return sanitized.strip()
 
     @staticmethod
