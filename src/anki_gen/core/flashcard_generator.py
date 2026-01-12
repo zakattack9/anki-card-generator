@@ -32,9 +32,17 @@ class GeminiError(Exception):
 
 UNIFIED_CARD_PROMPT = """You are a world-class Anki flashcard creator. Generate high-quality flashcards from the chapter below.
 
+## CRITICAL: Source Fidelity
+
+- ONLY create cards from information EXPLICITLY stated in the chapter content below
+- NEVER add, infer, or introduce facts not present in the source text
+- NEVER use your own knowledge to expand or supplement the content
+- If the content is just a title, heading, or lacks substantive information, generate ZERO cards
+- Generating 0 cards is completely valid and preferred over fabricating content
+
 ## Card Type Selection
 
-For EACH fact, choose the optimal card type:
+For EACH fact explicitly stated in the content, choose the optimal card type:
 
 **CLOZE** - Use for:
 - Numbers, dates, percentages, quantities
@@ -58,8 +66,8 @@ For EACH fact, choose the optimal card type:
    - Multiple deletions (c1, c2, c3...) for lists, sequences, or related items that form ONE concept
    - NEVER use multiple deletions for UNRELATED facts - split into separate cards instead
 3. **Atomic concepts** - Each card tests one cohesive idea
-4. **Self-contained** - A student with no prior knowledge should understand the card
-5. **Add context** - Use your knowledge to make cards complete and accurate
+4. **Self-contained** - Cards should be understandable using ONLY info from the source
+5. **Source-only** - Every fact in a card must come directly from the chapter content
 6. **Focus on key concepts** - Prioritize important ideas over trivial details
 7. **Escape pipes** - If content contains |, write it as \\|
 
@@ -120,17 +128,21 @@ Basic|How many members are in the House of Representatives?|435|congress
 BAD - not self-contained:
 Cloze|{{{{c1::Article I}}}} is the longest article.|Section|constitution
 
-GOOD - self-contained version:
-Cloze|{{{{c1::Article I}}}} of the U.S. Constitution, which establishes Congress, is the longest of the seven articles.|The framers believed the legislative branch should be preeminent in American government|constitution congress
+GOOD - self-contained version (using only source info):
+Cloze|{{{{c1::Article I}}}} of the U.S. Constitution, which establishes Congress, is the longest of the seven articles.|Establishes the legislative branch|constitution congress
 
 ## Avoid These Mistakes
 
+- **ADDING INFORMATION NOT IN THE SOURCE** - This is the #1 mistake. Never fabricate facts.
+- Creating cards when the content is just a title slide or heading with no substantive info
 - Creating both a basic AND cloze card for the same fact
 - Using multiple cloze deletions for unrelated facts in one card
 - Category-only back-extra ("Number", "Date", "Term")
 - Questions that could be answered with a single word/number (use cloze instead)
 - Cards that require reading another card to understand
 - Trivial facts that aren't worth memorizing
+
+If the chapter content lacks substantive facts to create cards from, return nothing (0 cards).
 
 Return ONLY the cards, no other text.
 
