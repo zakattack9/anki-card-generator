@@ -94,6 +94,19 @@ class AnkiExportConfig(BaseModel):
         sanitized = re.sub(r"-+", "-", sanitized)
         return sanitized.strip("-")
 
+    @staticmethod
+    def escape_field(field: str, separator: str = "|") -> str:
+        """Escape a field for Anki's CSV import format.
+
+        Per Anki docs: if a field contains the separator or quotes,
+        wrap in quotes and double any internal quotes.
+        """
+        if separator in field or '"' in field:
+            # Escape quotes by doubling them
+            escaped = field.replace('"', '""')
+            return f'"{escaped}"'
+        return field
+
 
 class GenerationResult(BaseModel):
     """Result of flashcard generation for a chapter."""
@@ -136,18 +149,18 @@ class GenerationResult(BaseModel):
             tags_str = " ".join(
                 AnkiExportConfig.sanitize_tag(t) for t in card.tags
             )
-            # Escape any pipes in content
-            front = card.front.replace("|", "\\|")
-            back = card.back.replace("|", "\\|")
+            # Escape fields containing pipes or quotes (per Anki docs)
+            front = AnkiExportConfig.escape_field(card.front)
+            back = AnkiExportConfig.escape_field(card.back)
             lines.append(f"Basic|{front}|{back}|{tags_str}|{card.guid}")
 
         for card in self.cloze_cards:
             tags_str = " ".join(
                 AnkiExportConfig.sanitize_tag(t) for t in card.tags
             )
-            # Escape any pipes in content
-            text = card.text.replace("|", "\\|")
-            back_extra = card.back_extra.replace("|", "\\|")
+            # Escape fields containing pipes or quotes (per Anki docs)
+            text = AnkiExportConfig.escape_field(card.text)
+            back_extra = AnkiExportConfig.escape_field(card.back_extra)
             lines.append(f"Cloze|{text}|{back_extra}|{tags_str}|{card.guid}")
 
         return "\n".join(lines)
