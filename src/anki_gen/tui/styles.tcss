@@ -1,0 +1,234 @@
+/* Global styles */
+Screen {
+    background: $surface;
+}
+
+Header {
+    dock: top;
+    height: 1;
+    background: $primary;
+}
+
+Footer {
+    dock: bottom;
+    height: 1;
+    background: $primary;
+}
+
+/* Main container */
+#main {
+    width: 100%;
+    height: 100%;
+    padding: 1 2;
+}
+
+/* Panels */
+#book-info {
+    border: round $accent;
+    padding: 1;
+    margin-bottom: 1;
+    height: auto;
+}
+
+#summary-panel {
+    border: round $success;
+    padding: 1;
+    margin: 1 0;
+}
+
+#completion-panel {
+    border: round $success;
+    padding: 1;
+    margin: 1 0;
+}
+
+#config-panel {
+    border: round $accent;
+    padding: 1;
+    margin: 1 0;
+}
+
+/* Depth indicator */
+#depth-indicator {
+    height: 1;
+    margin-bottom: 1;
+    color: $text;
+}
+
+/* Tables */
+DataTable {
+    height: 1fr;
+    margin: 0 0 1 0;
+}
+
+DataTable > .datatable--cursor {
+    background: $accent;
+    color: $text;
+}
+
+/* Status column styling - using Rich markup in the table cells instead */
+.status-done {
+    color: $success;
+}
+
+.status-partial {
+    color: $warning;
+}
+
+.status-pending {
+    color: $text-muted;
+}
+
+/* Checkbox styles in table */
+.checkbox-selected {
+    color: $success;
+}
+
+.checkbox-partial {
+    color: $warning;
+}
+
+.checkbox-empty {
+    color: $text-muted;
+}
+
+/* Help text */
+#help-text {
+    height: 1;
+    color: $text-muted;
+}
+
+/* Progress display */
+#progress-container {
+    width: 100%;
+    height: auto;
+    padding: 1;
+}
+
+#step-info {
+    height: auto;
+    margin-bottom: 1;
+}
+
+#current-step {
+    height: 1;
+    margin-bottom: 1;
+}
+
+ProgressBar {
+    margin: 1 0;
+    padding: 0;
+    height: 1;
+}
+
+/* Config form */
+.config-row {
+    height: auto;
+    margin-bottom: 1;
+    layout: horizontal;
+}
+
+.config-label {
+    width: 20;
+    height: 1;
+    content-align: left middle;
+}
+
+.config-value {
+    width: 1fr;
+    height: 1;
+}
+
+Input {
+    width: 100%;
+}
+
+/* Buttons */
+Button {
+    margin: 0 1;
+}
+
+#actions {
+    align: center middle;
+    height: auto;
+    margin: 1;
+    layout: horizontal;
+}
+
+/* Checkbox rows */
+.checkbox-row {
+    height: auto;
+    layout: horizontal;
+    margin: 1 0;
+}
+
+Checkbox {
+    margin-right: 1;
+}
+
+/* Rule/separator */
+Rule {
+    margin: 1 0;
+    height: 1;
+}
+
+/* Error dialog */
+#error-dialog {
+    width: 60;
+    height: auto;
+    padding: 1 2;
+    border: round $error;
+    background: $surface;
+}
+
+#error-title {
+    text-style: bold;
+    color: $error;
+    margin-bottom: 1;
+}
+
+#error-message {
+    margin-bottom: 1;
+}
+
+#error-actions {
+    layout: horizontal;
+    align: center middle;
+    margin-top: 1;
+}
+
+/* Warning message */
+.warning {
+    color: $warning;
+    margin: 1 0;
+}
+
+/* Info/instruction text */
+.instruction {
+    color: $text-muted;
+    height: 1;
+}
+
+/* Selected state for file table */
+.file-selected {
+    background: $accent;
+}
+
+/* Empty state message */
+#empty-message {
+    width: 100%;
+    height: 100%;
+    content-align: center middle;
+}
+
+/* Loading state */
+#loading {
+    width: 100%;
+    height: 100%;
+    content-align: center middle;
+}
+
+LoadingIndicator {
+    width: 100%;
+    height: 3;
+}

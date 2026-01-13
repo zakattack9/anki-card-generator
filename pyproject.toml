@@ -15,7 +15,7 @@ dependencies = [
     "pypdf>=4.0,<5.0",
     "pdfplumber>=0.10,<1.0",
     # Interactive TUI
-    "questionary>=2.0",
+    "textual>=0.85.0",
 ]
 
 [project.scripts]
