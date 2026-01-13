@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
 import signal
-import sys
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -42,6 +42,9 @@ from anki_gen.models.book import Chapter, ParsedBook
 
 # Large book threshold for warning
 LARGE_BOOK_THRESHOLD = 100
+
+# Deck hierarchy level names for preview
+DECK_LEVEL_NAMES = ["Book", "Part", "Chapter", "Section", "Subsection"]
 
 
 # Custom questionary style
@@ -106,6 +109,73 @@ def scan_for_books(directory: Path) -> list[Path]:
     for ext in ["*.pdf", "*.epub"]:
         books.extend(directory.glob(ext))
     return sorted(books, key=lambda p: p.name.lower())
+
+
+def get_deck_hierarchy_preview(depth_level: int) -> str:
+    """Get deck hierarchy preview string based on depth level."""
+    levels = DECK_LEVEL_NAMES[:depth_level]
+    return "::".join(levels)
+
+
+def calculate_file_hash(file_path: Path) -> str:
+    """Calculate MD5 hash of a file."""
+    hasher = hashlib.md5()
+    with open(file_path, "rb") as f:
+        # Read in chunks for large files
+        for chunk in iter(lambda: f.read(65536), b""):
+            hasher.update(chunk)
+    return hasher.hexdigest()
+
+
+def validate_output_dir(path: Path, console: Console) -> Path:
+    """Validate output directory, fall back to current directory if invalid."""
+    if path.exists() and path.is_dir():
+        return path
+    elif not path.exists():
+        # Try to create it
+        try:
+            path.mkdir(parents=True, exist_ok=True)
+            return path
+        except OSError:
+            console.print(f"[yellow]Warning: Could not create {path}, using current directory[/]")
+            return Path(".")
+    else:
+        console.print(f"[yellow]Warning: {path} is not a directory, using current directory[/]")
+        return Path(".")
+
+
+def check_book_hash_changed(book_path: Path, chapters_dir: Path) -> tuple[bool, str | None]:
+    """Check if book file has changed since last generation.
+
+    Returns (changed, warning_message) tuple.
+    """
+    if not chapters_dir.exists():
+        return False, None
+
+    # Look for manifest to get stored hash
+    manifest_path = chapters_dir / "manifest.json"
+    if not manifest_path.exists():
+        return False, None
+
+    try:
+        import json
+        manifest = json.loads(manifest_path.read_text())
+        stored_hash = manifest.get("source_hash")
+
+        if stored_hash is None:
+            return False, None
+
+        current_hash = calculate_file_hash(book_path)
+
+        if current_hash != stored_hash:
+            return True, (
+                f"[yellow]\u26a0 Book file has changed since last generation.[/]\n"
+                f"Previously generated sections will be regenerated."
+            )
+
+        return False, None
+    except (json.JSONDecodeError, OSError):
+        return False, None
 
 
 def format_file_size(size_bytes: int) -> str:
@@ -624,8 +694,9 @@ def step_configuration(
     while True:
         console.clear()
 
-        # Build config panel
-        deck_display = config.deck_name or "Auto (Book::Part::Chapter)"
+        # Build config panel with dynamic deck hierarchy preview
+        hierarchy_preview = get_deck_hierarchy_preview(config.depth_level)
+        deck_display = config.deck_name or f"Auto ({hierarchy_preview})"
         max_cards_display = str(config.max_cards) if config.max_cards else "Unlimited"
         tags_display = ", ".join(config.tags) if config.tags else "(none)"
 
@@ -778,6 +849,9 @@ def step_confirmation(
     else:
         format_display = parsed.source_format.upper()
 
+    # Build deck hierarchy preview
+    hierarchy_preview = get_deck_hierarchy_preview(config.depth_level)
+
     summary_lines = [
         f"  Book:        [bold]{parsed.metadata.title}[/]",
         f"  Format:      {format_display}",
@@ -786,7 +860,7 @@ def step_confirmation(
         f"    \u2022 To generate: {len(to_generate)} sections (at lowest level)",
         f"    \u2022 Skipping:    {len(to_skip)} sections (already done)",
         "",
-        f"  Deck depth:  Level {config.depth_level}",
+        f"  Deck depth:  Level {config.depth_level} ({hierarchy_preview})",
         f"  Output:      {output_file}",
         f"  Model:       {config.model}",
         f"  Max cards:   {config.max_cards or 'Unlimited'}",
@@ -874,6 +948,9 @@ def step_execution(
     chapters_dir = config.chapters_dir
     if chapters_dir is None:
         chapters_dir = get_default_output_dir(book_path)
+
+    # Validate output directory (for export file)
+    config.output_dir = validate_output_dir(config.output_dir, console)
 
     # Track what we've completed for graceful interrupt
     completed_sections: list[int] = []
@@ -1115,6 +1192,14 @@ def execute_run(
             # Set chapters_dir (where parsed chapters are stored)
             config.chapters_dir = get_default_output_dir(book_path)
             # output_dir stays as "." (current directory) for the export file
+
+            # Check if book file has changed since last generation
+            hash_changed, warning_msg = check_book_hash_changed(book_path, config.chapters_dir)
+            if hash_changed and warning_msg:
+                console.print()
+                console.print(warning_msg)
+                console.print()
+                config.force_regenerate = True
 
             if non_interactive:
                 # Non-interactive mode: select all, use defaults
