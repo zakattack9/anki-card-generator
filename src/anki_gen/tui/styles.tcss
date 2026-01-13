@@ -126,21 +126,27 @@ ProgressBar {
     height: auto;
     margin-bottom: 1;
     layout: horizontal;
+    align: left middle;
 }
 
 .config-label {
     width: 20;
-    height: 1;
+    height: 3;
     content-align: left middle;
 }
 
 .config-value {
     width: 1fr;
-    height: 1;
+    height: auto;
 }
 
 Input {
     width: 100%;
+    height: 3;
+}
+
+Input:focus {
+    border: tall $accent;
 }
 
 /* Buttons */
@@ -226,6 +232,17 @@ Rule {
     width: 100%;
     height: 100%;
     content-align: center middle;
+}
+
+#loading-text {
+    text-align: center;
+    margin: 1 0;
+}
+
+#loading-indicator {
+    width: 100%;
+    height: 3;
+    margin: 1 0;
 }
 
 LoadingIndicator {

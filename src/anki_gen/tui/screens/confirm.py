@@ -13,7 +13,7 @@ class ConfirmScreen(Screen):
     """Screen for confirming execution."""
 
     BINDINGS = [
-        Binding("enter", "start_execution", "Start", show=True),
+        Binding("enter", "start_execution", "Start", show=True, priority=True),
         Binding("e", "export_only", "Export Only", show=False),
         Binding("r", "regenerate_all", "Regenerate", show=False),
         Binding("b", "go_back", "Back", show=True),

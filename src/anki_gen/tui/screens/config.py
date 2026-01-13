@@ -16,11 +16,11 @@ class ConfigScreen(Screen):
     BINDINGS = [
         Binding("tab", "focus_next", "Next Field", show=False),
         Binding("shift+tab", "focus_previous", "Prev Field", show=False),
-        Binding("s", "toggle_skip", "Toggle Skip", show=True, priority=True),
-        Binding("enter", "continue", "Continue", show=True),
-        Binding("b", "go_back", "Back", show=True),
-        Binding("escape", "go_back", "Back", show=False),
-        Binding("q", "quit", "Quit", show=True),
+        Binding("s", "toggle_skip", "Toggle Skip", show=True),  # No priority - allow typing in inputs
+        Binding("enter", "continue", "Continue", show=True, priority=True),
+        Binding("b", "go_back", "Back", show=False),  # Hidden - use Escape instead
+        Binding("escape", "go_back", "Back", show=True, priority=True),  # Show Escape as primary back
+        Binding("q", "quit", "Quit", show=False),  # Hidden - use Escape or close window
     ]
 
     skip_regenerate = reactive(True)
@@ -140,6 +140,14 @@ class ConfigScreen(Screen):
         """Handle checkbox changes."""
         if event.checkbox.id == "skip-toggle":
             self.skip_regenerate = event.value
+
+    def action_focus_next(self) -> None:
+        """Move focus to next input field."""
+        self.app.action_focus_next()
+
+    def action_focus_previous(self) -> None:
+        """Move focus to previous input field."""
+        self.app.action_focus_previous()
 
     def action_toggle_skip(self) -> None:
         """Toggle the skip regenerate setting."""

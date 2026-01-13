@@ -8,7 +8,7 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Container
 from textual.screen import Screen
-from textual.widgets import DataTable, Footer, Header, Static
+from textual.widgets import DataTable, Footer, Header, LoadingIndicator, Static
 
 
 class FileSelectScreen(Screen):
@@ -23,6 +23,7 @@ class FileSelectScreen(Screen):
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
         self.books: list[Path] = []
+        self._loading = False
 
     def compose(self) -> ComposeResult:
         """Create child widgets."""
@@ -30,11 +31,17 @@ class FileSelectScreen(Screen):
         with Container(id="main"):
             yield Static("Select a book to process:", id="prompt")
             yield DataTable(id="file-table", cursor_type="row")
+            yield Static("", id="loading-text")
+            yield LoadingIndicator(id="loading-indicator")
         yield Footer()
 
     def on_mount(self) -> None:
         """Set up the file table when mounted."""
         from anki_gen.tui.pipeline import format_file_size, scan_for_books
+
+        # Hide loading indicator initially
+        self.query_one("#loading-text", Static).display = False
+        self.query_one("#loading-indicator", LoadingIndicator).display = False
 
         self.books = scan_for_books(Path("."))
 
@@ -77,6 +84,23 @@ class FileSelectScreen(Screen):
 
     def _load_book(self, book_path: Path) -> None:
         """Load and parse the selected book."""
+        if self._loading:
+            return  # Already loading
+
+        self._loading = True
+
+        # Show loading state
+        self.query_one("#prompt", Static).update(f"[bold]{book_path.name}[/]")
+        self.query_one("#file-table", DataTable).display = False
+        self.query_one("#loading-text", Static).update("[dim]Parsing book structure...[/]")
+        self.query_one("#loading-text", Static).display = True
+        self.query_one("#loading-indicator", LoadingIndicator).display = True
+
+        # Use call_after_refresh to ensure UI updates before blocking parse
+        self.call_after_refresh(self._do_parse, book_path)
+
+    def _do_parse(self, book_path: Path) -> None:
+        """Actually parse the book (called after UI refresh)."""
         from anki_gen.tui.screens.section_select import SectionSelectScreen
 
         # Parse the book

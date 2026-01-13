@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from rich.text import Text
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Container
@@ -14,11 +15,11 @@ class SectionSelectScreen(Screen):
     """Screen for selecting sections to process."""
 
     BINDINGS = [
-        Binding("space", "toggle_selection", "Toggle", show=True),
+        Binding("space", "toggle_selection", "Toggle", show=True, priority=True),
         Binding("a", "select_all", "All", show=True),
         Binding("n", "select_none", "None", show=True),
         Binding("d", "cycle_depth", "Depth", show=True),
-        Binding("enter", "continue", "Continue", show=True),
+        Binding("enter", "continue", "Continue", show=True, priority=True),
         Binding("b", "go_back", "Back", show=True),
         Binding("escape", "go_back", "Back", show=False),
         Binding("q", "quit", "Quit", show=False),  # Hide from footer - redundant
@@ -134,8 +135,9 @@ class SectionSelectScreen(Screen):
         if not table.columns:
             return
 
-        # Save current cursor position
+        # Save current cursor position and scroll position
         saved_cursor_row = table.cursor_row
+        saved_scroll_y = table.scroll_y
 
         # Clear and repopulate
         table.clear()
@@ -145,13 +147,13 @@ class SectionSelectScreen(Screen):
         for idx, node in enumerate(visible_nodes):
             checkbox = get_checkbox_state(node)
 
-            # Color the checkbox based on state
+            # Color the checkbox based on state - use Text with style (not markup, as [x] looks like markup)
             if checkbox == "[x]":
-                checkbox_display = f"[green]{checkbox}[/]"
+                checkbox_display = Text(checkbox, style="green")
             elif checkbox == "[~]":
-                checkbox_display = f"[yellow]{checkbox}[/]"
+                checkbox_display = Text(checkbox, style="yellow")
             else:
-                checkbox_display = f"[dim]{checkbox}[/]"
+                checkbox_display = Text(checkbox, style="dim")
 
             # Indentation based on level
             indent = "  " * node.level
@@ -169,13 +171,13 @@ class SectionSelectScreen(Screen):
             word_count = calculate_aggregated_word_count(node)
             status_text, status_class = get_status_display(node)
 
-            # Color the status
+            # Color the status - use Text for proper rendering
             if status_class == "status-done":
-                status_display = f"[green]{status_text}[/]"
+                status_display = Text.from_markup(f"[green]{status_text}[/]")
             elif status_class == "status-partial":
-                status_display = f"[yellow]{status_text}[/]"
+                status_display = Text.from_markup(f"[yellow]{status_text}[/]")
             else:
-                status_display = f"[dim]{status_text}[/]"
+                status_display = Text.from_markup(f"[dim]{status_text}[/]")
 
             # Add row with a key for stable reference
             table.add_row(
@@ -186,10 +188,13 @@ class SectionSelectScreen(Screen):
                 key=str(node.index),
             )
 
-        # Restore cursor position (clamped to valid range)
+        # Restore cursor position (clamped to valid range) without scrolling
         if saved_cursor_row is not None and len(visible_nodes) > 0:
             new_row = min(saved_cursor_row, len(visible_nodes) - 1)
+            # Set cursor without triggering scroll by restoring scroll position after
             table.cursor_coordinate = Coordinate(new_row, 0)
+            # Restore scroll position to prevent auto-scroll on selection
+            table.scroll_y = saved_scroll_y
 
     def _update_row(self, row_index: int) -> None:
         """Update a single row in the table without clearing everything."""
@@ -208,11 +213,11 @@ class SectionSelectScreen(Screen):
 
         checkbox = get_checkbox_state(node)
         if checkbox == "[x]":
-            checkbox_display = f"[green]{checkbox}[/]"
+            checkbox_display = Text(checkbox, style="green")
         elif checkbox == "[~]":
-            checkbox_display = f"[yellow]{checkbox}[/]"
+            checkbox_display = Text(checkbox, style="yellow")
         else:
-            checkbox_display = f"[dim]{checkbox}[/]"
+            checkbox_display = Text(checkbox, style="dim")
 
         # Indentation based on level
         indent = "  " * node.level
@@ -231,11 +236,11 @@ class SectionSelectScreen(Screen):
         status_text, status_class = get_status_display(node)
 
         if status_class == "status-done":
-            status_display = f"[green]{status_text}[/]"
+            status_display = Text.from_markup(f"[green]{status_text}[/]")
         elif status_class == "status-partial":
-            status_display = f"[yellow]{status_text}[/]"
+            status_display = Text.from_markup(f"[yellow]{status_text}[/]")
         else:
-            status_display = f"[dim]{status_text}[/]"
+            status_display = Text.from_markup(f"[dim]{status_text}[/]")
 
         # Update the row using its key
         row_key = str(node.index)
