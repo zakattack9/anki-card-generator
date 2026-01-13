@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import re
 import signal
+from collections import defaultdict
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -112,8 +113,14 @@ def scan_for_books(directory: Path) -> list[Path]:
 
 
 def get_deck_hierarchy_preview(depth_level: int) -> str:
-    """Get deck hierarchy preview string based on depth level."""
-    levels = DECK_LEVEL_NAMES[:depth_level]
+    """Get deck hierarchy preview string based on depth level.
+
+    Based on PRD:
+    - depth_level=1 → "Book::Part" (shows 1 section level)
+    - depth_level=2 → "Book::Part::Chapter" (shows 2 section levels)
+    """
+    # Always include "Book" plus depth_level section hierarchy levels
+    levels = DECK_LEVEL_NAMES[: depth_level + 1]
     return "::".join(levels)
 
 
@@ -346,6 +353,81 @@ def get_selected_leaf_indices(nodes: list[SectionNode]) -> list[int]:
         collect_selected_leaves(node)
 
     return indices
+
+
+def find_node_by_index(nodes: list[SectionNode], index: int) -> SectionNode | None:
+    """Find a node in the tree by its chapter index."""
+    for node in nodes:
+        if node.index == index:
+            return node
+        found = find_node_by_index(node.children, index)
+        if found:
+            return found
+    return None
+
+
+def get_ancestors_to_depth(node: SectionNode, depth_level: int) -> list[str]:
+    """Get ancestor titles up to the specified depth level.
+
+    depth_level determines how many hierarchy levels are included in deck names
+    (in addition to the book title which is always prepended):
+    - depth_level=1: Book + Part (1 section level)
+    - depth_level=2: Book + Part + Chapter (2 section levels)
+    - depth_level=3: Book + Part + Chapter + Section (3 section levels)
+
+    Based on PRD:
+    - Level 1 selection → deck = "Book::Part I"
+    - Level 2 selection → deck = "Book::Part I::Chapter 1"
+    """
+    ancestors: list[str] = []
+
+    # Walk up from node to root, collecting ancestors (including self)
+    current: SectionNode | None = node
+    while current:
+        ancestors.append(current.title)
+        current = current.parent
+
+    # Reverse to get root-to-leaf order
+    ancestors.reverse()
+
+    # Return ancestors limited to depth_level (book title is prepended separately)
+    # depth_level=1 means include 1 level of hierarchy (Part)
+    # depth_level=2 means include 2 levels (Part + Chapter), etc.
+    return ancestors[:depth_level]
+
+
+def calculate_deck_name_for_chapter(
+    chapter_index: int,
+    section_tree: list[SectionNode],
+    depth_level: int,
+    book_title: str,
+) -> str:
+    """Calculate the deck name for a chapter based on depth level and hierarchy.
+
+    Args:
+        chapter_index: The chapter's index
+        section_tree: The hierarchical section tree
+        depth_level: The selected depth level (1=book, 2=book::part, etc.)
+        book_title: The book's title
+
+    Returns:
+        Deck name string like "Book Title::Part I::Chapter 1"
+    """
+    # Clean book title for deck name
+    clean_book = book_title.strip()
+
+    # Find the node for this chapter
+    node = find_node_by_index(section_tree, chapter_index)
+    if node is None:
+        # Fallback: just use book title
+        return clean_book
+
+    # Get ancestors up to depth_level
+    ancestors = get_ancestors_to_depth(node, depth_level)
+
+    # Build deck name: Book::Ancestor1::Ancestor2::...
+    parts = [clean_book] + ancestors
+    return "::".join(parts)
 
 
 def calculate_aggregated_word_count(node: SectionNode) -> int:
@@ -1039,19 +1121,50 @@ def step_execution(
         if not to_generate:
             console.print("  [green]\u2713[/] All sections already generated")
         else:
-            # Call execute_generate for the actual generation
-            execute_generate(
-                chapters_dir=chapters_dir,
-                max_cards=config.max_cards,
-                model=config.model,
-                dry_run=False,
-                quiet=False,
-                console=console,
-                chapters=",".join(str(idx + 1) for idx in to_generate),
-                deck=config.deck_name,
-                tags=config.tags or None,
-                force=config.force_regenerate,
-            )
+            # If deck_name is None (Auto), use depth-based deck names
+            if config.deck_name is None:
+                # Build section tree to calculate deck names based on depth level
+                section_tree = build_section_tree(parsed, chapters_dir)
+
+                # Group chapters by their calculated deck name
+                deck_groups: dict[str, list[int]] = defaultdict(list)
+
+                for idx in to_generate:
+                    deck_name = calculate_deck_name_for_chapter(
+                        idx, section_tree, config.depth_level, parsed.metadata.title
+                    )
+                    deck_groups[deck_name].append(idx)
+
+                # Generate for each deck group
+                for deck_name, chapter_indices in deck_groups.items():
+                    execute_generate(
+                        chapters_dir=chapters_dir,
+                        max_cards=config.max_cards,
+                        model=config.model,
+                        dry_run=False,
+                        quiet=False,
+                        console=console,
+                        chapters=",".join(str(idx + 1) for idx in chapter_indices),
+                        deck=deck_name,
+                        tags=config.tags or None,
+                        force=config.force_regenerate,
+                    )
+                    if interrupted:
+                        break
+            else:
+                # Custom deck name provided, use it for all
+                execute_generate(
+                    chapters_dir=chapters_dir,
+                    max_cards=config.max_cards,
+                    model=config.model,
+                    dry_run=False,
+                    quiet=False,
+                    console=console,
+                    chapters=",".join(str(idx + 1) for idx in to_generate),
+                    deck=config.deck_name,
+                    tags=config.tags or None,
+                    force=config.force_regenerate,
+                )
             newly_generated_count = len(to_generate)
 
         if interrupted:
