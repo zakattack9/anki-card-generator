@@ -787,10 +787,11 @@ def step_configuration(
             "  " + "\u2500" * 55,
         ]
 
-        if skip_count > 0:
+        # Show regeneration toggle if there are sections that could be skipped
+        if already_done:
             skip_check = "[x]" if not config.force_regenerate else "[ ]"
             force_check = "[x]" if config.force_regenerate else "[ ]"
-            config_lines.append(f"  {skip_check} Skip already-generated sections ({skip_count} sections)")
+            config_lines.append(f"  {skip_check} Skip already-generated sections ({len(already_done)} sections)")
             config_lines.append(f"  {force_check} Force regenerate all selected sections")
 
         console.print(Panel(
@@ -811,9 +812,10 @@ def step_configuration(
             questionary.Choice(title=f"Tags: {tags_display}", value="tags"),
         ]
 
-        if skip_count > 0:
+        # Show toggle when there are sections that could be skipped
+        if already_done:
             choices.append(questionary.Choice(
-                title=f"{'[x]' if not config.force_regenerate else '[ ]'} Skip already-generated ({skip_count})",
+                title=f"{'[x]' if not config.force_regenerate else '[ ]'} Skip already-generated ({len(already_done)})",
                 value="toggle_skip"
             ))
 
