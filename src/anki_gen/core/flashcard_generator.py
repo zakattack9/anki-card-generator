@@ -81,10 +81,10 @@ The back-extra field provides additional context FROM THE SOURCE, NOT external k
 - NEVER add information not present in the chapter content
 
 GOOD back-extra (from source):
-- "Discussed in the section on membrane potentials"
+- "Discussed in the previous section on X"
 - "One of the three types listed in the source"
-- "Related to the syndrome described above"
-- "Part of the diagnostic criteria mentioned"
+- "Comparison introduced in the chapter"
+- "Part of the criteria mentioned above"
 
 BAD back-extra (never use):
 - Single-word labels: "Number", "Date", "Definition", "Term"
@@ -111,29 +111,29 @@ Tags: 1-3 lowercase hyphenated topic words (e.g., "constitution separation-of-po
 ## Examples
 
 GOOD Basic card (explanation from source):
-Basic|What distinguishes a focal neurologic lesion from a diffuse one?|A focal lesion is due to a specific location ("where"), while a diffuse lesion affects a system or cell type ("what")|neurology lesion-localization
+Basic|Why do tectonic plates move?|Convection currents in the mantle create forces that push and pull the plates|geology plate-tectonics
 
 GOOD Cloze (single deletion - fact from source):
-Cloze|Delirium is characterized by {{{{c1::acute}}}} onset and {{{{c2::fluctuating}}}} course.|Key diagnostic features mentioned in criteria|delirium diagnosis
+Cloze|The Declaration of Independence was signed in {{{{c1::1776}}}}.|Discussed in the founding documents section|history american-revolution
 
 GOOD Cloze (list from source):
-Cloze|The three types of muscle tissue are {{{{c1::skeletal}}}}, {{{{c2::cardiac}}}}, and {{{{c3::smooth}}}}.|Listed in the tissue classification section|anatomy muscle
+Cloze|The three branches of U.S. government are {{{{c1::legislative}}}}, {{{{c2::executive}}}}, and {{{{c3::judicial}}}}.|Framework described in Article I-III|government constitution
 
 GOOD Cloze (related pair from source):
-Cloze|{{{{c1::Upper}}}} motor neuron lesions cause spasticity, while {{{{c2::lower}}}} motor neuron lesions cause flaccidity.|Comparison from the motor pathways section|neurology motor-neurons
+Cloze|{{{{c1::Mitosis}}}} produces identical cells, while {{{{c2::meiosis}}}} produces genetically diverse gametes.|Comparison from the cell division section|biology cell-division
 
 BAD - multiple deletions for UNRELATED facts:
-Cloze|The patient was {{{{c1::45}}}} years old and had {{{{c2::diabetes}}}} and {{{{c3::hypertension}}}}.|Facts|case-study
+Cloze|The company was founded in {{{{c1::1995}}}} and employs {{{{c2::50,000}}}} people.|Facts|business
 
 BAD - should be cloze, not basic:
-Basic|What percentage of strokes are ischemic?|87%|stroke
+Basic|What year did World War II end?|1945|history
 
 BAD - adds information not in source:
-Cloze|{{{{c1::Broca's area}}}} controls speech production and is located in the left frontal lobe near the motor cortex.|Named after Paul Broca who discovered it in 1861|neurology
-(If "Paul Broca" and "1861" weren't in the source, this is hallucination)
+Cloze|{{{{c1::Shakespeare}}}} wrote Hamlet, considered one of the greatest tragedies in English literature.|Written around 1600 during the Elizabethan era|literature
+(If "greatest tragedies" and "1600" weren't in the source, this is hallucination)
 
 GOOD - uses only source info:
-Cloze|{{{{c1::Broca's area}}}} controls speech production.|Located in the frontal lobe per the diagram|neurology speech
+Cloze|{{{{c1::Shakespeare}}}} wrote Hamlet.|Listed among his major works in the chapter|literature drama
 
 ## Avoid These Mistakes
 
