@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import re
+import signal
+import sys
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -24,11 +26,22 @@ from anki_gen.commands.generate import (
     load_chapter,
     load_manifest,
     save_generation_result,
+    extract_chapter_number,
 )
-from anki_gen.commands.export import execute_export
+from anki_gen.commands.export import (
+    execute_export,
+    find_card_files,
+    parse_card_file,
+    calculate_stats,
+    build_combined_export,
+)
 from anki_gen.core.parser_factory import ParserFactory
 from anki_gen.core.output_writer import OutputWriter
 from anki_gen.models.book import Chapter, ParsedBook
+
+
+# Large book threshold for warning
+LARGE_BOOK_THRESHOLD = 100
 
 
 # Custom questionary style
@@ -76,7 +89,8 @@ class SectionNode:
 @dataclass
 class RunConfig:
     """Configuration for the run command."""
-    output_dir: Path = field(default_factory=lambda: Path("."))
+    output_dir: Path = field(default_factory=lambda: Path("."))  # Where export file goes
+    chapters_dir: Path | None = None  # Where parsed chapters are stored
     model: str = "gemini-3-pro-preview"
     deck_name: str | None = None  # None = auto
     max_cards: int | None = None  # None = unlimited
@@ -311,11 +325,21 @@ def get_partial_selection(node: SectionNode) -> bool:
 def get_status_display(node: SectionNode) -> str:
     """Get status column display for a node."""
     if node.status == "done":
-        return "[green]Done[/]"
+        return "[green]\u2713 Done[/]"
     elif node.status == "partial":
-        # Count done/total children
-        done = sum(1 for c in node.children if c.status == "done")
-        total = len(node.children)
+        # Count done/total children recursively
+        def count_done_leaves(n: SectionNode) -> tuple[int, int]:
+            if not n.children:
+                return (1 if n.status == "done" else 0, 1)
+            done = 0
+            total = 0
+            for child in n.children:
+                d, t = count_done_leaves(child)
+                done += d
+                total += t
+            return done, total
+
+        done, total = count_done_leaves(node)
         return f"[yellow]{done}/{total} done[/]"
     else:
         return "[dim]Pending[/]"
@@ -443,7 +467,9 @@ def step_section_selection(
                 f"(confidence: {parsed.extraction_confidence:.0%})"
             )
 
-        info_lines.append(f"[dim]Total Sections:[/] {len(parsed.chapters)}")
+        # Show total sections with depth info
+        depth_info = f" ({max_depth} levels deep)" if has_hierarchy else ""
+        info_lines.append(f"[dim]Total Sections:[/] {len(parsed.chapters)}{depth_info}")
 
         console.print(Panel(
             "\n".join(info_lines),
@@ -587,8 +613,11 @@ def step_configuration(
     console: Console,
 ) -> tuple[RunConfig, NavigationAction]:
     """Step 3: Configure generation settings."""
+    # Use config.chapters_dir if available, fallback to parameter
+    effective_chapters_dir = config.chapters_dir or chapters_dir
+
     # Calculate sections to skip
-    gen_status = get_generation_status(chapters_dir, config.selected_indices)
+    gen_status = get_generation_status(effective_chapters_dir, config.selected_indices)
     already_done = [idx for idx in config.selected_indices if gen_status.get(idx, False)]
     skip_count = len(already_done) if not config.force_regenerate else 0
 
@@ -725,29 +754,36 @@ def step_configuration(
 def step_confirmation(
     parsed: ParsedBook,
     config: RunConfig,
-    chapters_dir: Path,
     console: Console,
 ) -> NavigationAction:
     """Step 4: Display summary and confirm execution."""
+    chapters_dir = config.chapters_dir
+    if chapters_dir is None:
+        chapters_dir = Path(".")
+
     # Calculate stats
     gen_status = get_generation_status(chapters_dir, config.selected_indices)
     to_generate = [idx for idx in config.selected_indices if config.force_regenerate or not gen_status.get(idx, False)]
     to_skip = [idx for idx in config.selected_indices if not config.force_regenerate and gen_status.get(idx, False)]
-
-    # Build deck name preview
-    deck_preview = config.deck_name or f"Book::Part::Chapter (Level {config.depth_level})"
 
     # Output file path
     output_file = config.output_dir / "all_cards.txt"
 
     console.clear()
 
+    # Format line with extraction method for PDF
+    if parsed.source_format == "pdf":
+        method_display = parsed.extraction_method.value.replace("_", " ").title()
+        format_display = f"{parsed.source_format.upper()} ({method_display})"
+    else:
+        format_display = parsed.source_format.upper()
+
     summary_lines = [
         f"  Book:        [bold]{parsed.metadata.title}[/]",
-        f"  Format:      {parsed.source_format.upper()}",
+        f"  Format:      {format_display}",
         "",
         f"  Sections:    {len(config.selected_indices)} selected",
-        f"    \u2022 To generate: {len(to_generate)} sections",
+        f"    \u2022 To generate: {len(to_generate)} sections (at lowest level)",
         f"    \u2022 Skipping:    {len(to_skip)} sections (already done)",
         "",
         f"  Deck depth:  Level {config.depth_level}",
@@ -764,10 +800,41 @@ def step_confirmation(
     ))
     console.print()
 
+    # Show warnings
+    if len(to_generate) >= LARGE_BOOK_THRESHOLD:
+        console.print(f"[yellow]\u26a0 Large book: {len(to_generate)} sections will require many API calls[/]")
+
     console.print(f"[dim]Estimated sections to process: {len(to_generate)}[/]")
     if to_generate:
         console.print("[dim]This will make API calls to Gemini for each section.[/]")
     console.print()
+
+    # Check if all sections already generated (offer shortcut)
+    if not to_generate and to_skip:
+        console.print("[green]All selected sections are already generated![/]")
+        console.print()
+
+        result = questionary.select(
+            "What would you like to do?",
+            choices=[
+                questionary.Choice(title="[E] Re-export only (no regeneration)", value="export_only"),
+                questionary.Choice(title="[R] Regenerate anyway", value="regenerate"),
+                questionary.Choice(title="[B] Go Back", value="back"),
+                questionary.Choice(title="[Q] Quit", value="quit"),
+            ],
+            style=WIZARD_STYLE,
+            instruction="",
+        ).ask()
+
+        if result == "export_only":
+            return NavigationAction.CONTINUE  # Will skip generation in execution
+        elif result == "regenerate":
+            config.force_regenerate = True
+            return NavigationAction.CONTINUE
+        elif result == "back":
+            return NavigationAction.BACK
+        else:
+            return NavigationAction.QUIT
 
     result = questionary.select(
         "Ready to start?",
@@ -792,132 +859,213 @@ def step_confirmation(
 # Step 5: Execution
 # ============================================================================
 
+class InterruptedError(Exception):
+    """Raised when execution is interrupted by user."""
+    pass
+
+
 def step_execution(
     book_path: Path,
     parsed: ParsedBook,
     config: RunConfig,
-    chapters_dir: Path,
     console: Console,
 ) -> None:
     """Step 5: Execute the full pipeline."""
-    console.clear()
-    console.print(f"[bold]Processing:[/] {parsed.metadata.title}")
-    console.print()
+    chapters_dir = config.chapters_dir
+    if chapters_dir is None:
+        chapters_dir = get_default_output_dir(book_path)
 
-    # Step 1: Parse (if needed)
-    console.print("[bold cyan][1/3][/] Parsing...")
+    # Track what we've completed for graceful interrupt
+    completed_sections: list[int] = []
+    newly_generated_count = 0
+    interrupted = False
 
-    if not chapters_dir.exists():
-        # Need to parse first
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            console=console,
-        ) as progress:
-            progress.add_task("Extracting sections...", total=None)
+    # Set up Ctrl+C handler
+    original_handler = signal.getsignal(signal.SIGINT)
 
-            writer = OutputWriter(chapters_dir, book_path)
-            chapter_metadata = []
+    def handle_interrupt(signum: int, frame: object) -> None:
+        nonlocal interrupted
+        interrupted = True
+        console.print("\n[yellow]Interrupt received. Finishing current operation...[/]")
 
-            for idx in config.selected_indices:
-                chapter = parsed.chapters[idx]
-                _, metadata = writer.write_chapter(chapter, "markdown")
-                chapter_metadata.append(metadata)
+    signal.signal(signal.SIGINT, handle_interrupt)
 
-            # Write manifest
-            writer.write_manifest(parsed, config.selected_indices, chapter_metadata)
+    try:
+        console.clear()
+        console.print(f"[bold]Processing:[/] {parsed.metadata.title}")
+        console.print()
 
-        console.print(f"  [green]\u2713[/] Extracted {len(config.selected_indices)} sections to {chapters_dir}/")
-    else:
-        # Check if we need to extract any new sections
-        existing_files = set(f.stem for f in find_chapter_files(chapters_dir))
-        new_indices = []
-        for idx in config.selected_indices:
-            chapter_stem = f"chapter_{idx + 1:03d}"
-            if chapter_stem not in existing_files:
-                new_indices.append(idx)
+        # Step 1: Parse (if needed)
+        console.print("[bold cyan][1/3][/] Parsing...")
 
-        if new_indices:
-            writer = OutputWriter(chapters_dir, book_path)
-            chapter_metadata = []
+        if not chapters_dir.exists():
+            # Need to parse first
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                console=console,
+            ) as progress:
+                progress.add_task("Extracting sections...", total=None)
 
-            for idx in new_indices:
-                chapter = parsed.chapters[idx]
-                _, metadata = writer.write_chapter(chapter, "markdown")
-                chapter_metadata.append(metadata)
+                writer = OutputWriter(chapters_dir, book_path)
+                chapter_metadata = []
 
-            console.print(f"  [green]\u2713[/] Extracted {len(new_indices)} new sections")
+                for idx in config.selected_indices:
+                    if interrupted:
+                        break
+                    chapter = parsed.chapters[idx]
+                    _, metadata = writer.write_chapter(chapter, "markdown")
+                    chapter_metadata.append(metadata)
+
+                # Write manifest
+                writer.write_manifest(parsed, config.selected_indices, chapter_metadata)
+
+            console.print(f"  [green]\u2713[/] Extracted {len(config.selected_indices)} sections to {chapters_dir}/")
         else:
-            console.print(f"  [green]\u2713[/] Using existing sections in {chapters_dir}/")
+            # Check if we need to extract any new sections
+            existing_files = set(f.stem for f in find_chapter_files(chapters_dir))
+            new_indices = []
+            for idx in config.selected_indices:
+                chapter_stem = f"chapter_{idx + 1:03d}"
+                if chapter_stem not in existing_files:
+                    new_indices.append(idx)
 
-    console.print()
+            if new_indices:
+                writer = OutputWriter(chapters_dir, book_path)
+                chapter_metadata = []
 
-    # Step 2: Generate
-    console.print("[bold cyan][2/3][/] Generating flashcards...")
+                for idx in new_indices:
+                    if interrupted:
+                        break
+                    chapter = parsed.chapters[idx]
+                    _, metadata = writer.write_chapter(chapter, "markdown")
+                    chapter_metadata.append(metadata)
 
-    gen_status = get_generation_status(chapters_dir, config.selected_indices)
-    to_generate = [idx for idx in config.selected_indices
-                   if config.force_regenerate or not gen_status.get(idx, False)]
+                console.print(f"  [green]\u2713[/] Extracted {len(new_indices)} new sections")
+            else:
+                console.print(f"  [green]\u2713[/] Using existing sections in {chapters_dir}/")
 
-    if not to_generate:
-        console.print("  [green]\u2713[/] All sections already generated")
-    else:
-        # Call execute_generate for the actual generation
-        execute_generate(
-            chapters_dir=chapters_dir,
-            max_cards=config.max_cards,
-            model=config.model,
-            dry_run=False,
-            quiet=False,
-            console=console,
-            chapters=",".join(str(idx + 1) for idx in to_generate),
-            deck=config.deck_name,
-            tags=config.tags or None,
-            force=config.force_regenerate,
-        )
+        if interrupted:
+            raise InterruptedError()
 
-    console.print()
+        console.print()
 
-    # Step 3: Export
-    console.print("[bold cyan][3/3][/] Exporting...")
+        # Step 2: Generate
+        console.print("[bold cyan][2/3][/] Generating flashcards...")
 
-    output_file = config.output_dir / "all_cards.txt"
-    execute_export(
-        chapters_dir=chapters_dir,
-        output_file=output_file,
-        console=console,
-        quiet=True,
-    )
+        gen_status = get_generation_status(chapters_dir, config.selected_indices)
+        to_generate = [idx for idx in config.selected_indices
+                       if config.force_regenerate or not gen_status.get(idx, False)]
+        previously_generated = [idx for idx in config.selected_indices
+                                if not config.force_regenerate and gen_status.get(idx, False)]
 
-    console.print(f"  [green]\u2713[/] Exported to {output_file}")
-    console.print()
+        if not to_generate:
+            console.print("  [green]\u2713[/] All sections already generated")
+        else:
+            # Call execute_generate for the actual generation
+            execute_generate(
+                chapters_dir=chapters_dir,
+                max_cards=config.max_cards,
+                model=config.model,
+                dry_run=False,
+                quiet=False,
+                console=console,
+                chapters=",".join(str(idx + 1) for idx in to_generate),
+                deck=config.deck_name,
+                tags=config.tags or None,
+                force=config.force_regenerate,
+            )
+            newly_generated_count = len(to_generate)
 
-    # Final summary
-    from anki_gen.commands.export import find_card_files, parse_card_file, calculate_stats
+        if interrupted:
+            raise InterruptedError()
 
-    card_files = find_card_files(chapters_dir)
-    chapters_data = []
-    for path in card_files:
-        parsed_cards = parse_card_file(path)
-        if parsed_cards:
-            chapters_data.append(parsed_cards)
+        console.print()
 
-    if chapters_data:
-        stats = calculate_stats(chapters_data)
+        # Step 3: Export (only selected sections)
+        console.print("[bold cyan][3/3][/] Exporting...")
 
-        summary_lines = [
-            f"  Total cards in export: {stats.total_cards} ({stats.basic_count} basic, {stats.cloze_count} cloze)",
-            "",
-            f"  Import file: {output_file}",
-            "",
-            "  [dim]Next: Import into Anki via File \u2192 Import[/]",
-        ]
+        output_file = config.output_dir / "all_cards.txt"
 
+        # Build export with only selected sections
+        selected_indices_set = set(config.selected_indices)
+        card_files = find_card_files(chapters_dir)
+        selected_card_files = []
+        for path in card_files:
+            chapter_num = extract_chapter_number(path)
+            if chapter_num is not None and (chapter_num - 1) in selected_indices_set:
+                selected_card_files.append(path)
+
+        # Parse selected card files and build export
+        chapters_data = []
+        for path in sorted(selected_card_files, key=lambda p: extract_chapter_number(p) or 0):
+            parsed_cards = parse_card_file(path)
+            if parsed_cards:
+                chapters_data.append(parsed_cards)
+
+        if chapters_data:
+            # Build book slug for tags
+            book_slug = re.sub(r"[^a-z0-9-]", "", parsed.metadata.title.lower().replace(" ", "-"))
+            book_slug = re.sub(r"-+", "-", book_slug).strip("-")
+
+            combined = build_combined_export(chapters_data, book_slug)
+            output_file.write_text(combined)
+
+            stats = calculate_stats(chapters_data)
+            console.print(f"  [green]\u2713[/] Exported {stats.total_cards} cards to {output_file}")
+        else:
+            console.print(f"  [yellow]No cards to export[/]")
+
+        console.print()
+
+        # Final summary
+        if chapters_data:
+            # Calculate newly generated vs previously generated cards
+            newly_gen_cards = 0
+            prev_gen_cards = 0
+            newly_gen_sections = newly_generated_count
+            prev_gen_sections = len(previously_generated)
+
+            for chapter_cards in chapters_data:
+                chapter_idx = chapter_cards.chapter_num - 1
+                card_count = chapter_cards.basic_count + chapter_cards.cloze_count
+                if chapter_idx in to_generate or config.force_regenerate:
+                    newly_gen_cards += card_count
+                else:
+                    prev_gen_cards += card_count
+
+            summary_lines = [
+                f"  Total cards in export: {stats.total_cards} ({stats.basic_count} basic, {stats.cloze_count} cloze)",
+            ]
+
+            if newly_gen_sections > 0 or prev_gen_sections > 0:
+                summary_lines.append(f"    \u2022 Newly generated: {newly_gen_cards} cards ({newly_gen_sections} sections)")
+                summary_lines.append(f"    \u2022 Previously generated: {prev_gen_cards} cards ({prev_gen_sections} sections)")
+
+            summary_lines.extend([
+                "",
+                f"  Import file: {output_file}",
+                "",
+                "  [dim]Next: Import into Anki via File \u2192 Import[/]",
+            ])
+
+            console.print(Panel(
+                "\n".join(summary_lines),
+                title="Complete",
+                border_style="green",
+            ))
+
+    except InterruptedError:
+        console.print()
         console.print(Panel(
-            "\n".join(summary_lines),
-            title="Complete",
-            border_style="green",
+            f"[yellow]Operation interrupted.[/]\n\n"
+            f"Completed sections are saved. You can resume by running the command again.",
+            title="Interrupted",
+            border_style="yellow",
         ))
+    finally:
+        # Restore original signal handler
+        signal.signal(signal.SIGINT, original_handler)
 
 
 # ============================================================================
@@ -933,7 +1081,6 @@ def execute_run(
     """Execute the interactive run wizard."""
     config = RunConfig(force_regenerate=force)
     parsed: ParsedBook | None = None
-    chapters_dir: Path | None = None
 
     current_step = WizardStep.FILE_SELECTION
 
@@ -965,27 +1112,28 @@ def execute_run(
                 if not cached:
                     cache_manager.save_structure(book_path, parsed)
 
-            chapters_dir = get_default_output_dir(book_path)
-            config.output_dir = chapters_dir
+            # Set chapters_dir (where parsed chapters are stored)
+            config.chapters_dir = get_default_output_dir(book_path)
+            # output_dir stays as "." (current directory) for the export file
 
             if non_interactive:
                 # Non-interactive mode: select all, use defaults
                 config.selected_indices = list(range(len(parsed.chapters)))
-                config.depth_level = get_max_depth(build_section_tree(parsed, chapters_dir))
+                config.depth_level = get_max_depth(build_section_tree(parsed, config.chapters_dir))
                 # Skip directly to execution
-                step_execution(book_path, parsed, config, chapters_dir, console)
+                step_execution(book_path, parsed, config, console)
                 return
 
             current_step = WizardStep.SECTION_SELECTION
 
         elif current_step == WizardStep.SECTION_SELECTION:
             # Step 2: Section Selection
-            if parsed is None:
+            if parsed is None or config.chapters_dir is None:
                 current_step = WizardStep.FILE_SELECTION
                 continue
 
             selected, depth, action = step_section_selection(
-                parsed, chapters_dir, console, config
+                parsed, config.chapters_dir, console, config
             )
 
             if action == NavigationAction.QUIT:
@@ -1003,11 +1151,11 @@ def execute_run(
 
         elif current_step == WizardStep.CONFIGURATION:
             # Step 3: Configuration
-            if parsed is None:
+            if parsed is None or config.chapters_dir is None:
                 current_step = WizardStep.FILE_SELECTION
                 continue
 
-            config, action = step_configuration(parsed, config, chapters_dir, console)
+            config, action = step_configuration(parsed, config, config.chapters_dir, console)
 
             if action == NavigationAction.QUIT:
                 console.print("[dim]Goodbye![/]")
@@ -1023,7 +1171,7 @@ def execute_run(
                 current_step = WizardStep.FILE_SELECTION
                 continue
 
-            action = step_confirmation(parsed, config, chapters_dir, console)
+            action = step_confirmation(parsed, config, console)
 
             if action == NavigationAction.QUIT:
                 console.print("[dim]Goodbye![/]")
@@ -1039,5 +1187,5 @@ def execute_run(
                 current_step = WizardStep.FILE_SELECTION
                 continue
 
-            step_execution(book_path, parsed, config, chapters_dir, console)
+            step_execution(book_path, parsed, config, console)
             return
