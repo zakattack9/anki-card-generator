@@ -15,22 +15,17 @@ import questionary
 from questionary import Style
 from rich.console import Console
 from rich.panel import Panel
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
+from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 
 from anki_gen.cache.manager import CacheManager
 from anki_gen.commands.generate import (
-    build_export_config,
     execute_generate,
     find_chapter_files,
     is_chapter_generated,
-    load_chapter,
-    load_manifest,
-    save_generation_result,
     extract_chapter_number,
 )
 from anki_gen.commands.export import (
-    execute_export,
     find_card_files,
     parse_card_file,
     calculate_stats,
@@ -38,7 +33,7 @@ from anki_gen.commands.export import (
 )
 from anki_gen.core.parser_factory import ParserFactory
 from anki_gen.core.output_writer import OutputWriter
-from anki_gen.models.book import Chapter, ParsedBook
+from anki_gen.models.book import ParsedBook
 
 
 # Large book threshold for warning
@@ -1034,8 +1029,7 @@ def step_execution(
     # Validate output directory (for export file)
     config.output_dir = validate_output_dir(config.output_dir, console)
 
-    # Track what we've completed for graceful interrupt
-    completed_sections: list[int] = []
+    # Track state for graceful interrupt
     newly_generated_count = 0
     interrupted = False
 
