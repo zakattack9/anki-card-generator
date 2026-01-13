@@ -35,9 +35,11 @@ Rewrite the interactive `run` command wizard using [Textual](https://textual.tex
 # Replace questionary with textual
 dependencies = [
     # Remove: "questionary>=2.0",
-    "textual>=0.50.0",  # TUI framework
+    "textual>=7.0.0",  # TUI framework (latest stable)
 ]
 ```
+
+**Note:** This is a **full refactor**. All questionary code will be removed entirely. No backwards compatibility with the current implementation is required.
 
 ### File Structure
 
@@ -549,14 +551,14 @@ Checkbox {
 
 ```
 ┌─────────────────┐
-│  File Select    │  (No back - this is the entry point)
-│    Screen 1     │
-└────────┬────────┘
-         │ Enter (select file)
-         ▼
-┌─────────────────┐
-│ Section Select  │◄─────┐
-│    Screen 2     │      │
+│  File Select    │◄─────────────────────┐
+│    Screen 1     │                      │
+└────────┬────────┘                      │
+         │ Enter (select file)           │
+         ▼                               │
+┌─────────────────┐                      │
+│ Section Select  │◄─────┐               │ B (back to file select)
+│    Screen 2     │──────┼───────────────┘
 └────────┬────────┘      │
          │ Enter         │ B (back)
          ▼               │
@@ -580,8 +582,9 @@ Checkbox {
 
 **Navigation Notes:**
 - Screen 1 has no back navigation (it's the entry point; use `Q` to quit)
+- Screen 2 can go back to Screen 1 (file selection) to choose a different book
 - Screen 5 has no back navigation (pipeline is running or complete)
-- If book path is provided via CLI, Screen 1 is skipped entirely
+- If book path is provided via CLI, Screen 1 is skipped and Screen 2's back returns to Screen 1
 
 ## State Management
 
@@ -735,27 +738,41 @@ def execute_run(
 
 ## Migration Plan
 
-1. **Phase 1: Create TUI module structure**
-   - Set up `src/anki_gen/tui/` directory
-   - Create base app and screen classes
-   - Add `textual` dependency, remove `questionary`
+This is a **full refactor/rebuild** of the interactive UI. No backwards compatibility with the current questionary-based implementation is required.
 
-2. **Phase 2: Implement screens**
-   - File selection screen with DataTable
-   - Section selection with custom checkbox rendering
-   - Configuration form with Input widgets
-   - Confirmation summary screen
-   - Execution screen with ProgressBar
+### Phase 1: Setup & Core Structure
+- Set up `src/anki_gen/tui/` directory structure
+- Add `textual>=7.0.0` dependency to pyproject.toml
+- Remove `questionary` dependency from pyproject.toml
+- Create `RunWizardApp` main application class
+- Create `WizardState` dataclass for shared state
+- Implement base screen navigation (`push_screen`/`pop_screen`)
 
-3. **Phase 3: Integration**
-   - Wire screens together with navigation
-   - Connect to existing parse/generate/export logic
-   - Test full workflow
+### Phase 2: Implement Screens
+- **Screen 1 (FileSelectScreen):** DataTable with file listing, row selection
+- **Screen 2 (SectionSelectScreen):** Custom DataTable with checkbox column, depth toggle, selection logic
+- **Screen 3 (ConfigScreen):** Input widgets for all configuration fields, Checkbox for skip toggle
+- **Screen 4 (ConfirmScreen):** Summary panel, conditional "all done" shortcut
+- **Screen 5 (ExecuteScreen):** ProgressBar, async pipeline execution, completion panel
 
-4. **Phase 4: Polish**
-   - Fine-tune CSS styling
-   - Add error handling and edge cases
-   - Test with large books
+### Phase 3: Pipeline Integration
+- Extract reusable pipeline logic from current `run.py` (parse, generate, export)
+- Connect screens to pipeline execution
+- Implement non-interactive mode (`--yes`) using extracted pipeline logic
+- Remove all questionary imports and code from `run.py`
+
+### Phase 4: Polish & Edge Cases
+- Implement all 12 edge cases from PRD
+- Add error dialogs (ModalScreen)
+- Fine-tune CSS styling
+- Test with books of various sizes (small, 100+ sections)
+- Test keyboard navigation and shortcuts
+
+### Phase 5: Cleanup
+- Delete any unused questionary-related code
+- Remove questionary from dependencies
+- Update any documentation referencing the old UI
+- Final testing of both interactive and non-interactive modes
 
 ## Testing
 
@@ -846,4 +863,5 @@ class ErrorDialog(ModalScreen):
 
 - [Textual Documentation](https://textual.textualize.io/)
 - [Textual Widget Gallery](https://textual.textualize.io/widget_gallery/)
+- [Textual on PyPI](https://pypi.org/project/textual/) (latest: v7.2.0)
 - [Original run-command PRD](./run-command.md)
