@@ -50,6 +50,7 @@ htmlcov/
 # Book files
 *.epub
 *.pdf
+*.zip
 
 # Serena
 .serena/
