@@ -7,20 +7,20 @@ from datetime import datetime
 from pathlib import Path
 
 from anki_gen.cache.models import (
+    CachedBookStructure,
     CachedChapter,
-    CachedEpubStructure,
     CacheIndex,
     CacheMetadata,
 )
-from anki_gen.models.epub import ParsedEpub
+from anki_gen.models.book import ParsedBook
 
 
 class CacheManager:
-    """Manages caching of parsed EPUB structures."""
+    """Manages caching of parsed book structures (EPUB, PDF, etc.)."""
 
     CACHE_DIR = ".anki_gen_cache"
     INDEX_FILE = "index.json"
-    CACHE_VERSION = "1.0"
+    CACHE_VERSION = "1.1"
 
     def __init__(self, project_dir: Path):
         self.cache_root = project_dir / self.CACHE_DIR
@@ -53,21 +53,21 @@ class CacheManager:
         index = self._load_index()
         self.index_path.write_text(index.model_dump_json(indent=2))
 
-    def get_file_hash(self, epub_path: Path) -> str:
-        """Compute SHA-256 hash of EPUB file."""
+    def get_file_hash(self, file_path: Path) -> str:
+        """Compute SHA-256 hash of a file."""
         sha256 = hashlib.sha256()
-        with open(epub_path, "rb") as f:
+        with open(file_path, "rb") as f:
             for chunk in iter(lambda: f.read(8192), b""):
                 sha256.update(chunk)
         return sha256.hexdigest()
 
-    def is_cache_valid(self, epub_path: Path) -> bool:
+    def is_cache_valid(self, file_path: Path) -> bool:
         """Check if cached data exists and is still valid."""
         if not self.cache_root.exists():
             return False
 
         index = self._load_index()
-        path_key = str(epub_path.resolve())
+        path_key = str(file_path.resolve())
 
         if path_key not in index.entries:
             return False
@@ -80,11 +80,11 @@ class CacheManager:
 
         # Load cached metadata
         try:
-            cached = CachedEpubStructure.model_validate_json(cache_file.read_text())
+            cached = CachedBookStructure.model_validate_json(cache_file.read_text())
         except Exception:
             return False
 
-        stat = epub_path.stat()
+        stat = file_path.stat()
 
         # Fast path: check mtime and size first
         if (
@@ -94,7 +94,7 @@ class CacheManager:
             return True
 
         # Slow path: mtime changed, verify with hash
-        current_hash = self.get_file_hash(epub_path)
+        current_hash = self.get_file_hash(file_path)
         if cached.cache_metadata.file_hash == current_hash:
             # File unchanged, update mtime in cache
             cached.cache_metadata.file_mtime = stat.st_mtime
@@ -103,28 +103,28 @@ class CacheManager:
 
         return False
 
-    def get_cached_structure(self, epub_path: Path) -> CachedEpubStructure | None:
-        """Retrieve cached EPUB structure if valid."""
-        if not self.is_cache_valid(epub_path):
+    def get_cached_structure(self, file_path: Path) -> CachedBookStructure | None:
+        """Retrieve cached book structure if valid."""
+        if not self.is_cache_valid(file_path):
             return None
 
         index = self._load_index()
-        path_key = str(epub_path.resolve())
+        path_key = str(file_path.resolve())
         file_hash = index.entries[path_key]
         cache_file = self.cache_root / "books" / file_hash / "structure.json"
 
         try:
-            return CachedEpubStructure.model_validate_json(cache_file.read_text())
+            return CachedBookStructure.model_validate_json(cache_file.read_text())
         except Exception:
             return None
 
-    def save_structure(self, epub_path: Path, parsed: ParsedEpub) -> None:
-        """Save parsed EPUB structure to cache."""
-        stat = epub_path.stat()
-        file_hash = self.get_file_hash(epub_path)
+    def save_structure(self, file_path: Path, parsed: ParsedBook) -> None:
+        """Save parsed book structure to cache."""
+        stat = file_path.stat()
+        file_hash = self.get_file_hash(file_path)
 
         cache_metadata = CacheMetadata(
-            epub_path=str(epub_path.resolve()),
+            file_path=str(file_path.resolve()),
             file_hash=file_hash,
             file_size=stat.st_size,
             file_mtime=stat.st_mtime,
@@ -140,16 +140,24 @@ class CacheManager:
                 file_name=ch.file_name,
                 word_count=ch.word_count,
                 has_images=ch.has_images,
+                page_start=ch.page_start,
+                page_end=ch.page_end,
+                extraction_confidence=ch.extraction_confidence,
+                extraction_method=ch.extraction_method,
+                level=ch.level,
             )
             for ch in parsed.chapters
         ]
 
-        structure = CachedEpubStructure(
+        structure = CachedBookStructure(
             cache_metadata=cache_metadata,
             book_metadata=parsed.metadata,
             toc=parsed.toc,
             chapters=cached_chapters,
             spine_order=parsed.spine_order,
+            source_format=parsed.source_format,
+            extraction_method=parsed.extraction_method,
+            extraction_confidence=parsed.extraction_confidence,
         )
 
         # Save to cache
@@ -160,7 +168,7 @@ class CacheManager:
 
         # Update index
         index = self._load_index()
-        index.entries[str(epub_path.resolve())] = file_hash
+        index.entries[str(file_path.resolve())] = file_hash
         self._save_index()
 
     def clear_cache(self) -> int:

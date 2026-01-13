@@ -11,7 +11,7 @@ from rich.prompt import Prompt
 from rich.table import Table
 
 from anki_gen.cache.manager import CacheManager
-from anki_gen.cache.models import CachedEpubStructure
+from anki_gen.cache.models import CachedBookStructure
 from anki_gen.core.output_writer import OutputWriter
 from anki_gen.core.parser_factory import ParserFactory
 from anki_gen.models.book import ParsedBook, TOCEntry
@@ -130,17 +130,17 @@ def execute_parse(
     cache_manager = CacheManager(book_path.parent)
 
     parsed: ParsedBook | None = None
-    cached: CachedEpubStructure | None = None
+    cached: CachedBookStructure | None = None
 
-    # Check cache first (only for EPUB currently, PDF caching TBD)
-    if not force and file_format == "epub":
+    # Check cache first
+    if not force:
         cached = cache_manager.get_cached_structure(book_path)
         if cached and not quiet:
             console.print("[dim]Using cached structure[/]")
 
     # Parse if not cached
     if cached is None:
-        format_name = "PDF" if file_format == "pdf" else "EPUB"
+        format_name = file_format.upper()
         if not quiet:
             with Progress(
                 SpinnerColumn(),
@@ -154,11 +154,10 @@ def execute_parse(
             parser = ParserFactory.create(book_path)
             parsed = parser.parse()
 
-        # Save to cache (EPUB only for now)
-        if file_format == "epub":
-            cache_manager.save_structure(book_path, parsed)
-            if not quiet:
-                console.print("[dim]Cached structure[/]")
+        # Save to cache
+        cache_manager.save_structure(book_path, parsed)
+        if not quiet:
+            console.print("[dim]Cached structure[/]")
     else:
         # Reconstruct from cache - re-parse to get raw content
         parser = ParserFactory.create(book_path)
