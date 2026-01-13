@@ -16,7 +16,6 @@ app = typer.Typer(
     name="anki-gen",
     help="Parse EPUB/PDF files into AI-readable format for flashcard generation.",
     add_completion=False,
-    no_args_is_help=True,
 )
 
 console = Console()
@@ -24,6 +23,83 @@ console = Console()
 # Cache subcommand group
 cache_app = typer.Typer(help="Cache management commands")
 app.add_typer(cache_app, name="cache")
+
+
+@app.callback(invoke_without_command=True)
+def main(ctx: typer.Context) -> None:
+    """Parse EPUB/PDF files into AI-readable format for flashcard generation.
+
+    Run without arguments to start the interactive wizard.
+    """
+    if ctx.invoked_subcommand is None:
+        # No subcommand provided, run the interactive wizard
+        from anki_gen.commands.run import execute_run
+
+        execute_run(
+            book_path=None,
+            non_interactive=False,
+            force=False,
+            console=console,
+        )
+
+
+@app.command()
+def run(
+    book_path: Annotated[
+        Optional[Path],
+        typer.Argument(
+            help="Path to book file (PDF/EPUB). If omitted, shows file picker.",
+        ),
+    ] = None,
+    non_interactive: Annotated[
+        bool,
+        typer.Option(
+            "--yes", "-y",
+            help="Skip confirmations, use all defaults",
+        ),
+    ] = False,
+    force: Annotated[
+        bool,
+        typer.Option(
+            "--force", "-f",
+            help="Force regenerate all sections (ignore already-generated)",
+        ),
+    ] = False,
+) -> None:
+    """Interactive wizard to parse, generate, and export flashcards.
+
+    Guides you through the complete flashcard generation workflow with
+    file selection, section picking, and configuration options.
+    """
+    # Validate book_path if provided
+    if book_path is not None:
+        if not book_path.exists():
+            console.print(f"[red]File not found: {book_path}[/]")
+            raise typer.Exit(1)
+        if not ParserFactory.is_supported(book_path):
+            console.print(f"[red]Unsupported file format: {book_path.suffix}[/]")
+            console.print("[dim]Supported formats: .epub, .pdf[/]")
+            raise typer.Exit(1)
+        book_path = book_path.resolve()
+
+    # Check for non-interactive mode without book path
+    if non_interactive and book_path is None:
+        console.print("[red]Error: --yes requires a book path argument[/]")
+        console.print("[dim]Example: anki-gen run book.pdf --yes[/]")
+        raise typer.Exit(1)
+
+    try:
+        from anki_gen.commands.run import execute_run
+
+        execute_run(
+            book_path=book_path,
+            non_interactive=non_interactive,
+            force=force,
+            console=console,
+        )
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/]")
+        raise typer.Exit(1)
 
 
 @app.command()
