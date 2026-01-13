@@ -6,6 +6,7 @@ from pathlib import Path
 
 from rich.console import Console
 from rich.panel import Panel
+from rich.table import Table
 
 from anki_gen.core.flashcard_generator import FlashcardGenerator, GeminiError
 from anki_gen.models.flashcard import AnkiExportConfig, GenerationResult
@@ -13,8 +14,20 @@ from anki_gen.models.output import BookOutput, ChapterOutput
 
 
 def find_chapter_files(chapters_dir: Path) -> list[Path]:
-    """Find all chapter JSON files in directory."""
-    return sorted(chapters_dir.glob("chapter_*.json"))
+    """Find all chapter JSON files in directory.
+
+    Excludes metadata files (*_meta.json) and card files (*_cards.txt).
+    """
+    all_files = chapters_dir.glob("chapter_*.json")
+    # Filter out meta files (e.g., chapter_001_meta.json)
+    chapter_files = [f for f in all_files if not f.stem.endswith("_meta")]
+    return sorted(chapter_files)
+
+
+def is_chapter_generated(chapter_path: Path) -> bool:
+    """Check if a chapter has already been generated (has _cards.txt file)."""
+    cards_path = chapter_path.parent / f"{chapter_path.stem}_cards.txt"
+    return cards_path.exists()
 
 
 def parse_chapter_selection(selection: str, total_chapters: int) -> set[int]:
@@ -175,6 +188,7 @@ def execute_generate(
     chapters: str | None = None,
     deck: str | None = None,
     tags: list[str] | None = None,
+    force: bool = False,
 ) -> None:
     """Execute the generate command."""
     # Load manifest (required for book metadata)
@@ -185,33 +199,107 @@ def execute_generate(
         return
 
     all_chapter_files = find_chapter_files(chapters_dir)
-    chapter_files = filter_chapter_files(all_chapter_files, chapters)
+    selected_files = filter_chapter_files(all_chapter_files, chapters)
 
-    if not chapter_files:
+    if not selected_files:
         console.print(f"[red]No section files found in {chapters_dir}[/]")
         console.print("[dim]Make sure you've run 'anki-gen parse' first.[/]")
         return
 
+    # Split into already-generated and pending
+    already_generated = [f for f in selected_files if is_chapter_generated(f)]
+    pending_files = [f for f in selected_files if not is_chapter_generated(f)]
+
+    # Determine which files to process
+    if force:
+        chapter_files = selected_files
+        skipped_files: list[Path] = []
+    else:
+        chapter_files = pending_files
+        skipped_files = already_generated
+
     if not quiet:
-        console.print(f"[dim]Book:[/] {manifest.book_title[:60]}...")
-        console.print(f"[dim]Found {len(chapter_files)} section(s) to process[/]")
+        book_title_display = manifest.book_title[:60]
+        if len(manifest.book_title) > 60:
+            book_title_display += "..."
+        console.print(f"[dim]Book:[/] {book_title_display}")
         console.print(f"[dim]Model: {model}[/]")
         if deck:
             console.print(f"[dim]Deck override: {deck}[/]")
         if tags:
             console.print(f"[dim]Extra tags: {', '.join(tags)}[/]")
+
+        # Show generation status
+        if force:
+            console.print(f"[dim]Sections to process:[/] {len(chapter_files)} (force mode)")
+        else:
+            console.print(
+                f"[dim]Sections:[/] {len(pending_files)} pending, "
+                f"{len(already_generated)} already generated"
+            )
         console.print()
+
+    # Handle case where all chapters are already generated
+    if not chapter_files and not dry_run:
+        console.print("[green]All sections already generated![/]")
+        console.print("[dim]Use --force to regenerate.[/]")
+        return
 
     if dry_run:
         console.print("[yellow]Dry run mode - no API calls will be made[/]")
         console.print()
-        for path in chapter_files:
-            chapter = load_chapter(path)
-            chapter_num = extract_chapter_number(path)
-            config = build_export_config(manifest, path, chapter, deck, tags)
-            console.print(f"  Would process: [cyan]{chapter.metadata.title}[/]")
-            console.print(f"    Words: {chapter.metadata.word_count:,}")
-            console.print(f"    Deck: {config.deck_name}")
+
+        if skipped_files:
+            table = Table(title=f"Already Generated ({len(skipped_files)})", title_style="dim")
+            table.add_column("#", style="dim", width=4)
+            table.add_column("Section", style="dim")
+            table.add_column("Words", justify="right", style="dim")
+
+            for path in skipped_files:
+                chapter = load_chapter(path)
+                section_num = extract_chapter_number(path)
+                short_title = chapter.metadata.title[:45]
+                if len(chapter.metadata.title) > 45:
+                    short_title += "..."
+                table.add_row(
+                    str(section_num),
+                    f"✓ {short_title}",
+                    f"{chapter.metadata.word_count:,}",
+                )
+
+            console.print(table)
+            console.print()
+
+        if chapter_files:
+            table = Table(title=f"To Generate ({len(chapter_files)})", title_style="cyan bold")
+            table.add_column("#", style="cyan", width=4)
+            table.add_column("Section", style="cyan")
+            table.add_column("Words", justify="right", style="white")
+            table.add_column("Deck", style="dim")
+
+            for path in chapter_files:
+                chapter = load_chapter(path)
+                config = build_export_config(manifest, path, chapter, deck, tags)
+                section_num = extract_chapter_number(path)
+                short_title = chapter.metadata.title[:40]
+                if len(chapter.metadata.title) > 40:
+                    short_title += "..."
+                # Shorten deck name for display
+                deck_display = config.deck_name
+                if len(deck_display) > 35:
+                    deck_display = "..." + deck_display[-32:]
+                table.add_row(
+                    str(section_num),
+                    short_title,
+                    f"{chapter.metadata.word_count:,}",
+                    deck_display,
+                )
+
+            console.print(table)
+        else:
+            console.print("[green]Nothing to generate - all sections complete![/]")
+            console.print("[dim]Use --force to regenerate.[/]")
+
         return
 
     # Create book slug for unique GUIDs across books

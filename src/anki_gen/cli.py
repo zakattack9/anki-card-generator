@@ -286,6 +286,14 @@ def generate(
             help="Show what would be generated without calling AI",
         ),
     ] = False,
+    force: Annotated[
+        bool,
+        typer.Option(
+            "--force",
+            "-f",
+            help="Regenerate all sections, even if already generated",
+        ),
+    ] = False,
     quiet: Annotated[
         bool,
         typer.Option(
@@ -314,6 +322,7 @@ def generate(
             chapters=sections,  # internally still uses 'chapters' param name
             deck=deck,
             tags=tags,
+            force=force,
         )
     except Exception as e:
         console.print(f"[red]Error: {e}[/]")
