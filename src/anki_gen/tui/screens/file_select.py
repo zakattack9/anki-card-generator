@@ -88,22 +88,25 @@ class FileSelectScreen(Screen):
             return  # Already loading
 
         self._loading = True
+        self._pending_book_path = book_path
 
-        # Show loading state
+        # Show loading state immediately
         self.query_one("#prompt", Static).update(f"[bold]{book_path.name}[/]")
         self.query_one("#file-table", DataTable).display = False
         self.query_one("#loading-text", Static).update("[dim]Parsing book structure...[/]")
         self.query_one("#loading-text", Static).display = True
         self.query_one("#loading-indicator", LoadingIndicator).display = True
 
-        # Use call_after_refresh to ensure UI updates before blocking parse
-        self.call_after_refresh(self._do_parse, book_path)
+        # Force a refresh, then use set_timer to defer parsing
+        # This ensures the loading UI is visible before blocking
+        self.refresh()
+        self.set_timer(0.1, lambda: self._do_parse(book_path))
 
     def _do_parse(self, book_path: Path) -> None:
-        """Actually parse the book (called after UI refresh)."""
+        """Actually parse the book (called after UI has refreshed)."""
         from anki_gen.tui.screens.section_select import SectionSelectScreen
 
-        # Parse the book
+        # Parse the book (this blocks but UI already shows loading)
         self.app._parse_book(book_path)
 
         # Navigate to section selection

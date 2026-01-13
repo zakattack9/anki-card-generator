@@ -114,6 +114,46 @@ class SectionSelectScreen(Screen):
             return []
         return flatten_to_depth(state.section_tree, self._current_depth)
 
+    def _get_tree_prefix(self, node, visible_nodes: list, node_idx: int) -> str:
+        """Generate proper tree prefix with box-drawing characters.
+
+        Returns a string like "│   ├── " or "    └── " for proper tree display.
+        """
+        if node.level == 0:
+            return ""
+
+        # Build the prefix from left to right (ancestor levels to current)
+        prefix_parts = []
+
+        # For each ancestor level, determine if we need │ or space
+        current = node
+        ancestors = []
+        while current.parent is not None:
+            ancestors.append(current)
+            current = current.parent
+        ancestors.reverse()  # Now ordered from root-child down to node
+
+        for i, ancestor in enumerate(ancestors):
+            is_last_level = (i == len(ancestors) - 1)
+
+            # Check if this ancestor is the last child of its parent
+            if ancestor.parent is not None:
+                siblings = ancestor.parent.children
+                is_last_child = (ancestor == siblings[-1])
+            else:
+                # Top-level node - check against root nodes
+                state = self.app.state
+                is_last_child = (ancestor == state.section_tree[-1]) if state.section_tree else True
+
+            if is_last_level:
+                # This is the current node's level - show branch connector
+                prefix_parts.append("└── " if is_last_child else "├── ")
+            else:
+                # This is an ancestor level - show vertical line or space
+                prefix_parts.append("    " if is_last_child else "│   ")
+
+        return "".join(prefix_parts)
+
     def _populate_table(self) -> None:
         """Populate the section table with current data."""
         from anki_gen.tui.state import (
@@ -155,18 +195,22 @@ class SectionSelectScreen(Screen):
             else:
                 checkbox_display = Text(checkbox, style="dim")
 
-            # Indentation based on level
-            indent = "  " * node.level
-            if node.children and node.level < self._current_depth - 1:
-                prefix = f"{indent}├─ "
-            elif node.level > 0:
-                prefix = f"{indent}└─ "
-            else:
-                prefix = ""
+            # Generate proper tree prefix with box-drawing characters
+            prefix = self._get_tree_prefix(node, visible_nodes, idx)
 
-            title_display = f"{prefix}{node.title}"
-            if len(title_display) > 50:
-                title_display = title_display[:47] + "..."
+            # Create title with gray tree stems for visual contrast
+            title_text = node.title
+            if len(prefix) + len(title_text) > 60:
+                max_title_len = 57 - len(prefix)
+                title_text = title_text[:max_title_len] + "..."
+
+            if prefix:
+                # Use Text object with styled prefix (dim/gray) and normal title
+                title_display = Text()
+                title_display.append(prefix, style="dim")
+                title_display.append(title_text)
+            else:
+                title_display = title_text
 
             word_count = calculate_aggregated_word_count(node)
             status_text, status_class = get_status_display(node)
@@ -219,18 +263,22 @@ class SectionSelectScreen(Screen):
         else:
             checkbox_display = Text(checkbox, style="dim")
 
-        # Indentation based on level
-        indent = "  " * node.level
-        if node.children and node.level < self._current_depth - 1:
-            prefix = f"{indent}├─ "
-        elif node.level > 0:
-            prefix = f"{indent}└─ "
-        else:
-            prefix = ""
+        # Generate proper tree prefix with box-drawing characters
+        prefix = self._get_tree_prefix(node, visible_nodes, row_index)
 
-        title_display = f"{prefix}{node.title}"
-        if len(title_display) > 50:
-            title_display = title_display[:47] + "..."
+        # Create title with gray tree stems for visual contrast
+        title_text = node.title
+        if len(prefix) + len(title_text) > 60:
+            max_title_len = 57 - len(prefix)
+            title_text = title_text[:max_title_len] + "..."
+
+        if prefix:
+            # Use Text object with styled prefix (dim/gray) and normal title
+            title_display = Text()
+            title_display.append(prefix, style="dim")
+            title_display.append(title_text)
+        else:
+            title_display = title_text
 
         word_count = calculate_aggregated_word_count(node)
         status_text, status_class = get_status_display(node)
