@@ -7,6 +7,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
+# Suppress warnings about malformed PDF object references from PDF libraries
+logging.getLogger("pdfminer").setLevel(logging.ERROR)
+logging.getLogger("pypdf").setLevel(logging.ERROR)
+
 import pdfplumber
 import pypdf
 from pypdf.errors import EmptyFileError, FileNotDecryptedError, PdfReadError
@@ -134,8 +138,9 @@ def detect_by_font(pdf_path: Path) -> DetectionResult | None:
                         )
                     )
 
-        # Deduplicate and filter
+        # Deduplicate and filter noise
         sections = _dedupe_sections(sections)
+        sections = _filter_noise(sections)
 
         if sections and _avg_confidence(sections) > 0.7:
             return DetectionResult(
@@ -217,13 +222,25 @@ def _calculate_heading_confidence(line: dict, body_size: float) -> float:
 
 
 def _is_likely_header_footer(line: dict, text: str) -> bool:
-    """Detect running headers/footers to exclude."""
+    """Detect running headers/footers and non-content text to exclude."""
+    text = text.strip()
+    text_lower = text.lower()
+    
     # Page numbers
-    if text.strip().isdigit():
+    if text.isdigit():
         return True
     # Very short repeated text
     if len(text) < 5:
         return True
+    
+    # Social media handles (starting with @)
+    if text.startswith("@"):
+        return True
+    
+    # URLs and website-like text
+    if text_lower.startswith(("http://", "https://", "www.")):
+        return True
+    
     return False
 
 
@@ -553,6 +570,10 @@ def _filter_noise(sections: list[Section]) -> list[Section]:
 
         # Skip very short titles (likely false positives)
         if len(title_lower) < 3:
+            continue
+
+        # Skip social media handles (starting with @)
+        if section.title.strip().startswith("@"):
             continue
 
         # Skip common false positives
