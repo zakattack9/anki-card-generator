@@ -15,6 +15,7 @@ from anki_gen.cache.models import CachedBookStructure
 from anki_gen.core.output_writer import OutputWriter
 from anki_gen.core.parser_factory import ParserFactory
 from anki_gen.models.book import ParsedBook, TOCEntry
+from anki_gen.models.extraction import ExtractionMethod
 
 
 def parse_chapter_selection(selection: str, total_chapters: int) -> list[int]:
@@ -117,6 +118,7 @@ def execute_parse(
     force: bool,
     quiet: bool,
     console: Console,
+    by_page: int | None = None,
 ) -> None:
     """Execute the parse command."""
     # Detect format
@@ -148,10 +150,10 @@ def execute_parse(
                 console=console,
             ) as progress:
                 progress.add_task(f"Parsing {format_name}...", total=None)
-                parser = ParserFactory.create(book_path)
+                parser = ParserFactory.create(book_path, pages_per_chunk=by_page)
                 parsed = parser.parse()
         else:
-            parser = ParserFactory.create(book_path)
+            parser = ParserFactory.create(book_path, pages_per_chunk=by_page)
             parsed = parser.parse()
 
         # Save to cache
@@ -160,7 +162,7 @@ def execute_parse(
             console.print("[dim]Cached structure[/]")
     else:
         # Reconstruct from cache - re-parse to get raw content
-        parser = ParserFactory.create(book_path)
+        parser = ParserFactory.create(book_path, pages_per_chunk=by_page)
         parsed = parser.parse()
 
     # Display book info
@@ -188,6 +190,17 @@ def execute_parse(
             info_lines.append("")
             for warning in parsed.warnings:
                 info_lines.append(f"[yellow]⚠ {warning}[/]")
+
+        # Add tip about --by-page customization for page-based chunking
+        if (
+            parsed.source_format == "pdf"
+            and parsed.extraction_method == ExtractionMethod.PDF_PAGE_CHUNKS
+        ):
+            info_lines.append("")
+            info_lines.append(
+                "[cyan]💡 Tip: Use --by-page N to adjust pages per section "
+                "(e.g., --by-page 5 for smaller sections)[/]"
+            )
 
         console.print(
             Panel(

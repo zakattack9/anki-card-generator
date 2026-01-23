@@ -7,6 +7,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
+# Suppress warnings about malformed PDF object references from PDF libraries
+logging.getLogger("pdfminer").setLevel(logging.ERROR)
+logging.getLogger("pypdf").setLevel(logging.ERROR)
+
 import pdfplumber
 import pypdf
 from pypdf.errors import EmptyFileError, FileNotDecryptedError, PdfReadError
@@ -134,8 +138,9 @@ def detect_by_font(pdf_path: Path) -> DetectionResult | None:
                         )
                     )
 
-        # Deduplicate and filter
+        # Deduplicate and filter noise
         sections = _dedupe_sections(sections)
+        sections = _filter_noise(sections)
 
         if sections and _avg_confidence(sections) > 0.7:
             return DetectionResult(
@@ -217,13 +222,25 @@ def _calculate_heading_confidence(line: dict, body_size: float) -> float:
 
 
 def _is_likely_header_footer(line: dict, text: str) -> bool:
-    """Detect running headers/footers to exclude."""
+    """Detect running headers/footers and non-content text to exclude."""
+    text = text.strip()
+    text_lower = text.lower()
+    
     # Page numbers
-    if text.strip().isdigit():
+    if text.isdigit():
         return True
     # Very short repeated text
     if len(text) < 5:
         return True
+    
+    # Social media handles (starting with @)
+    if text.startswith("@"):
+        return True
+    
+    # URLs and website-like text
+    if text_lower.startswith(("http://", "https://", "www.")):
+        return True
+    
     return False
 
 
@@ -555,6 +572,10 @@ def _filter_noise(sections: list[Section]) -> list[Section]:
         if len(title_lower) < 3:
             continue
 
+        # Skip social media handles (starting with @)
+        if section.title.strip().startswith("@"):
+            continue
+
         # Skip common false positives
         false_positives = {
             "contents",
@@ -572,6 +593,62 @@ def _filter_noise(sections: list[Section]) -> list[Section]:
         filtered.append(section)
 
     return filtered
+
+
+def _validate_section_distribution(
+    sections: list[Section], pdf_path: Path, min_word_threshold: int = 50
+) -> bool:
+    """
+    Check if word distribution across sections is healthy.
+    Returns True if distribution seems valid, False if it suggests failed detection.
+
+    Suspicious pattern: Many sections with very few words + 1-2 sections with
+    almost all the content indicates the detection picked up noise (branding,
+    headers) rather than actual chapter structure.
+    """
+    if len(sections) < 3:
+        return True  # Too few sections to validate distribution
+
+    # Calculate word counts for each section
+    with pdfplumber.open(str(pdf_path)) as pdf:
+        word_counts = []
+        for i, section in enumerate(sections):
+            page_start = section.page_start or 0
+            if section.page_end is not None:
+                page_end = section.page_end
+            elif i + 1 < len(sections):
+                page_end = max(page_start, (sections[i + 1].page_start or page_start) - 1)
+            else:
+                page_end = len(pdf.pages) - 1
+
+            # Extract text and count words
+            text_parts = []
+            for page_num in range(page_start, min(page_end + 1, len(pdf.pages))):
+                text_parts.append(pdf.pages[page_num].extract_text() or "")
+            word_count = len(" ".join(text_parts).split())
+            word_counts.append(word_count)
+
+    total_words = sum(word_counts)
+    if total_words == 0:
+        return True  # No content to validate
+
+    # Check for suspicious distribution:
+    # If >60% of sections have <min_word_threshold words AND
+    # top 2 sections contain >85% of total content
+    tiny_sections = sum(1 for count in word_counts if count < min_word_threshold)
+    tiny_ratio = tiny_sections / len(word_counts)
+
+    sorted_counts = sorted(word_counts, reverse=True)
+    top_two_ratio = sum(sorted_counts[:2]) / total_words if total_words > 0 else 0
+
+    if tiny_ratio > 0.6 and top_two_ratio > 0.85:
+        log.info(
+            f"  Distribution check: {tiny_ratio:.0%} tiny sections, "
+            f"{top_two_ratio:.0%} content in top 2 - suspicious"
+        )
+        return False  # Suspicious distribution
+
+    return True
 
 
 # =============================================================================
@@ -699,6 +776,14 @@ def detect_sections(pdf_path: Path) -> DetectionResult:
             continue
 
         if result.confidence >= layer.min_confidence:
+            # Validate word distribution before accepting result
+            if not _validate_section_distribution(result.sections, pdf_path):
+                log.warning(
+                    f"  Layer {layer.name}: Suspicious word distribution - "
+                    f"falling back to next layer"
+                )
+                continue  # Try next detection layer
+
             log.info(
                 f"  Layer {layer.name}: SUCCESS - "
                 f"{len(result.sections)} sections, "
@@ -727,9 +812,10 @@ def detect_sections(pdf_path: Path) -> DetectionResult:
 class PdfParser(BookParser):
     """Parse PDF files and extract structure using cascade detection."""
 
-    def __init__(self, pdf_path: Path):
+    def __init__(self, pdf_path: Path, pages_per_chunk: int | None = None):
         self.path = pdf_path
         self._detection_result: DetectionResult | None = None
+        self._pages_per_chunk = pages_per_chunk
 
         try:
             self._reader = pypdf.PdfReader(str(pdf_path))
@@ -750,7 +836,10 @@ class PdfParser(BookParser):
         sample_text = self._extract_sample_text()
         warnings_list: list[str] = []
 
-        if len(sample_text.strip()) < 100:
+        if self._pages_per_chunk is not None:
+            log.info(f"Forced page-based chunking (--by-page {self._pages_per_chunk})")
+            self._detection_result = chunk_by_pages(self.path, self._pages_per_chunk)
+        elif len(sample_text.strip()) < 100:
             log.warning(
                 "PDF appears to have limited text content. "
                 "May be scanned or image-based."
