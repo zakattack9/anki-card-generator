@@ -29,11 +29,13 @@ class ParserFactory:
     }
 
     @classmethod
-    def create(cls, path: Path) -> BookParser:
+    def create(cls, path: Path, pages_per_chunk: int | None = None) -> BookParser:
         """Create appropriate parser for the given file.
 
         Args:
             path: Path to the book file (EPUB or PDF)
+            pages_per_chunk: If set, skip section detection and use
+                page-based chunking with this many pages per section (PDF only)
 
         Returns:
             BookParser instance for the file type
@@ -60,7 +62,7 @@ class ParserFactory:
         elif suffix == ".pdf":
             from anki_gen.core.pdf_parser import PdfParser
 
-            return PdfParser(path)
+            return PdfParser(path, pages_per_chunk=pages_per_chunk)
 
         # Should never reach here, but satisfy type checker
         raise ValueError(f"Unsupported format: {suffix}")

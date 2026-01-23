@@ -11,6 +11,7 @@ from rich.table import Table
 from anki_gen.cache.manager import CacheManager
 from anki_gen.commands.parse import execute_parse
 from anki_gen.core.parser_factory import ParserFactory
+from anki_gen.models.extraction import ExtractionMethod
 
 app = typer.Typer(
     name="anki-gen",
@@ -85,6 +86,14 @@ def parse(
             help="Suppress progress output",
         ),
     ] = False,
+    by_page: Annotated[
+        Optional[int],
+        typer.Option(
+            "--by-page",
+            help="Force page-based chunking with N pages per section (PDF only, default: 10)",
+            min=1,
+        ),
+    ] = None,
 ) -> None:
     """Parse an EPUB or PDF file and extract sections."""
     # Validate file format
@@ -109,6 +118,7 @@ def parse(
             force=force,
             quiet=quiet,
             console=console,
+            by_page=by_page,
         )
     except Exception as e:
         console.print(f"[red]Error: {e}[/]")
@@ -171,6 +181,17 @@ def info(
             info_lines.append("")
             for warning in parsed.warnings:
                 info_lines.append(f"[yellow]⚠ {warning}[/]")
+
+        # Add tip about --by-page customization for page-based chunking
+        if (
+            parsed.source_format == "pdf"
+            and parsed.extraction_method == ExtractionMethod.PDF_PAGE_CHUNKS
+        ):
+            info_lines.append("")
+            info_lines.append(
+                "[cyan]💡 Tip: Use --by-page N with 'parse' to adjust pages per section "
+                "(e.g., --by-page 5 for smaller sections)[/]"
+            )
 
         console.print()
         console.print(
